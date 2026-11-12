@@ -3,6 +3,7 @@ import {
   FolderLock,
   Images,
   Lock,
+  Plus,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -515,6 +516,18 @@ export default function App() {
           onCancel={uploader.cancel}
           onDismiss={uploader.dismiss}
         />
+      ) : null}
+
+      {/* Mobile Floating Action Button (FAB): only when library has media items */}
+      {view === 'photos' && visibleItems.length > 0 && targetChannelId ? (
+        <button
+          type="button"
+          onClick={openFilePicker}
+          aria-label="Upload files"
+          className="fixed bottom-20 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#1a73e8] to-[#0d9488] text-white shadow-xl shadow-accent/25 transition-transform active:scale-95 sm:hidden"
+        >
+          <Plus size={26} />
+        </button>
       ) : null}
 
       <ChannelSelectorModal
