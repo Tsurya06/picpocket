@@ -119,6 +119,20 @@ export default function App() {
     void timeline.resetScan();
   }, [timeline.resetScan, vaults.version]);
 
+  // If items stayed encrypted after the first header scan, retry the scan once
+  // before asking the user for a passphrase.
+  const recheckedRef = useRef(false);
+  useEffect(() => {
+    if (!vaults.settled) return;
+    if (timeline.skipped === 0) {
+      recheckedRef.current = false;
+      return;
+    }
+    if (vaults.lockedIds.length > 0 || recheckedRef.current) return;
+    recheckedRef.current = true;
+    vaults.recheck();
+  }, [timeline.skipped, vaults.lockedIds.length, vaults.recheck, vaults.settled]);
+
   const targetChannelId = viewChannelId ?? channels.selectedIds[0] ?? null;
   const backupChannelTitle =
     channels.channels.find((channel) => channel.id === targetChannelId)?.title ??
@@ -406,6 +420,11 @@ export default function App() {
             id,
             title: channels.channels.find((channel) => channel.id === id)?.title ?? 'Channel',
           }))}
+          candidates={channels.selectedChannels.map((channel) => ({
+            id: channel.id,
+            title: channel.title,
+          }))}
+          settled={vaults.settled}
           skipped={timeline.skipped}
           error={vaults.error}
           onUnlock={vaults.unlock}

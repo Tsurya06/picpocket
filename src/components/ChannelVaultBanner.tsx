@@ -9,7 +9,12 @@ export interface LockedChannel {
 }
 
 export interface ChannelVaultBannerProps {
+  /** Channels whose header was found but whose key is not derived here. */
   readonly channels: readonly LockedChannel[];
+  /** Every selected channel, used when items are hidden but none is known-locked. */
+  readonly candidates: readonly LockedChannel[];
+  /** False while the per-channel header scan is still running. */
+  readonly settled: boolean;
   /** Items in the current page that could not be decrypted yet. */
   readonly skipped: number;
   readonly error: string | null;
@@ -22,37 +27,32 @@ export interface ChannelVaultBannerProps {
  */
 export function ChannelVaultBanner({
   channels,
+  candidates,
+  settled,
   skipped,
   error,
   onUnlock,
 }: ChannelVaultBannerProps) {
-  const [channelId, setChannelId] = useState(channels[0]?.id ?? '');
+  const knownLocked = channels.length > 0;
+  const targets = knownLocked ? channels : settled && skipped > 0 ? candidates : [];
+
+  const [channelId, setChannelId] = useState(targets[0]?.id ?? '');
   const [passphrase, setPassphrase] = useState('');
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState(false);
 
   useEffect(() => {
-    if (!channels.some((channel) => channel.id === channelId)) {
-      setChannelId(channels[0]?.id ?? '');
+    if (!targets.some((channel) => channel.id === channelId)) {
+      setChannelId(targets[0]?.id ?? '');
     }
-  }, [channelId, channels]);
+  }, [channelId, targets]);
 
-  if (channels.length === 0) {
-    if (skipped === 0) return null;
-    return (
-      <div className="mx-auto mt-3 max-w-[1800px] px-4 sm:px-6">
-        <p className="rounded-xl border border-line bg-surface/60 px-3.5 py-2.5 text-xs text-muted">
-          {skipped} item{skipped === 1 ? '' : 's'} in this channel are sealed with another key, so
-          they are hidden. Unlock that channel or press refresh to retry.
-        </p>
-      </div>
-    );
-  }
+  if (targets.length === 0) return null;
 
   const title =
-    channels.length === 1
-      ? `“${channels[0]?.title ?? 'This channel'}” needs its vault passphrase`
-      : `${channels.length} channels need their vault passphrases`;
+    targets.length === 1
+      ? `“${targets[0]?.title ?? 'This channel'}” needs its vault passphrase`
+      : `${targets.length} channels need their vault passphrases`;
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -73,8 +73,9 @@ export function ChannelVaultBanner({
           <KeyRound size={14} className="shrink-0 text-amber-500" /> {title}
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-muted">
-          This channel was sealed on another device with a different passphrase. Enter it once to
-          unlock just this channel — your main vault and passphrase stay unchanged.
+          {knownLocked
+            ? 'This channel was sealed with a passphrase that differs from your vault on this device. Enter it once to unlock just this channel — your main vault and passphrase stay unchanged.'
+            : `${skipped} item${skipped === 1 ? '' : 's'} here are sealed with a key this browser has not derived yet. If you set a different vault passphrase on this device, enter the passphrase used when the channel was created.`}
         </p>
 
         {opened ? (
@@ -82,14 +83,17 @@ export function ChannelVaultBanner({
             Channel unlocked. Decrypting its items…
           </p>
         ) : (
-          <form onSubmit={(event) => void submit(event)} className="mt-2.5 flex flex-col gap-2 sm:flex-row">
-            {channels.length > 1 ? (
+          <form
+            onSubmit={(event) => void submit(event)}
+            className="mt-2.5 flex flex-col gap-2 sm:flex-row"
+          >
+            {targets.length > 1 ? (
               <select
                 value={channelId}
                 onChange={(event) => setChannelId(event.target.value)}
                 className="h-9 rounded-xl border border-line bg-app px-2.5 text-xs text-ink focus:border-accent focus:outline-none"
               >
-                {channels.map((channel) => (
+                {targets.map((channel) => (
                   <option key={channel.id} value={channel.id}>
                     {channel.title}
                   </option>
