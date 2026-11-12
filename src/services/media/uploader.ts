@@ -145,12 +145,12 @@ export async function uploadFile(input: UploadInput): Promise<UploadOutcome> {
   }
 
   const meta = buildMeta(input.file, prepared, input.caption);
-  const caption = await cryptoClient.encryptMeta(meta);
+  const caption = await cryptoClient.encryptMeta(meta, input.channelId);
   report(input.onProgress, 0.08);
 
   let thumbMessageId: number | undefined;
   if (prepared.thumb) {
-    const sealedThumb = await cryptoClient.encryptThumb(prepared.thumb.bytes);
+    const sealedThumb = await cryptoClient.encryptThumb(prepared.thumb.bytes, input.channelId);
     thumbMessageId = await telegramService.uploadEncrypted({
       channelId: input.channelId,
       bytes: sealedThumb,
@@ -162,7 +162,7 @@ export async function uploadFile(input: UploadInput): Promise<UploadOutcome> {
   }
   report(input.onProgress, 0.12);
 
-  const sealedOrigin = await cryptoClient.encryptBytes(prepared.original);
+  const sealedOrigin = await cryptoClient.encryptBytes(prepared.original, input.channelId);
   report(input.onProgress, 0.16);
 
   const messageId = await telegramService.uploadEncrypted({
@@ -225,7 +225,7 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
       }
     }
 
-    const packed = await cryptoClient.packBundle(buffers);
+    const packed = await cryptoClient.packBundle(buffers, channelId);
     const bundleId = randomId();
     options.onBundleProgress?.('Uploading encrypted bundle…', 0.1);
 
@@ -274,7 +274,10 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
       entries,
     };
     const indexBytes = new TextEncoder().encode(JSON.stringify(indexDocument));
-    const sealedIndex = await cryptoClient.encryptBytes(indexBytes.buffer as ArrayBuffer);
+    const sealedIndex = await cryptoClient.encryptBytes(
+      indexBytes.buffer as ArrayBuffer,
+      channelId,
+    );
 
     options.onBundleProgress?.('Uploading sealed bundle index…', 0.95);
     const indexMessageId = await telegramService.uploadEncrypted({

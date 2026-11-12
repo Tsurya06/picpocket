@@ -18,8 +18,12 @@ export interface PhotoTimelineApi {
   loadingMore: boolean;
   error: string | null;
   hasMore: boolean;
+  /** Items skipped because no channel key could decrypt them yet. */
+  skipped: number;
   loadMore: () => Promise<void>;
   reload: () => Promise<void>;
+  /** Clears skip markers and re-reads history from the newest message. */
+  resetScan: () => Promise<void>;
   removeItems: (ids: readonly string[]) => void;
   itemCount: number;
 }
@@ -70,7 +74,11 @@ export function usePhotoTimeline(options: {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [skipped, setSkipped] = useState(0);
   const [generation, setGeneration] = useState(0);
+
+  /** Items whose key was unavailable; cleared by a manual refresh. */
+  const skippedRef = useRef(new Set<string>());
 
   /** `null` means "no further pages" for that channel. */
   const cursorsRef = useRef(new Map<string, TimelineOffset | null>());
@@ -93,8 +101,13 @@ export function usePhotoTimeline(options: {
         if (!descriptor.vaultCaption) {
           return toItem(descriptor);
         }
+        const marker = `${descriptor.channelId}:${descriptor.messageId}`;
         try {
-          const meta = await cryptoClient.decryptMeta(descriptor.vaultCaption);
+          const meta = await cryptoClient.decryptMeta(
+            descriptor.vaultCaption,
+            descriptor.channelId,
+          );
+          skippedRef.current.delete(marker);
           const thumbMessageId = thumbByMid.get(meta.mid);
           return toItem(descriptor, {
             kind: meta.kind,
@@ -112,7 +125,9 @@ export function usePhotoTimeline(options: {
           });
         } catch {
           // A file sealed with a different vault key cannot be shown, but it
-          // must never break the rest of the timeline.
+          // must never break the rest of the timeline. The marker lets a manual
+          // refresh retry it once that channel's key is available.
+          skippedRef.current.add(marker);
           return null;
         }
       }),
@@ -125,7 +140,10 @@ export function usePhotoTimeline(options: {
             batch.channelId,
             ref.messageId,
           );
-          const plaintext = await cryptoClient.decryptBytes(indexDownload.bytes);
+          const plaintext = await cryptoClient.decryptBytes(
+            indexDownload.bytes,
+            batch.channelId,
+          );
           const parsed: unknown = JSON.parse(new TextDecoder().decode(plaintext));
           if (!isMediaBundleIndex(parsed) || parsed.channelId !== batch.channelId) return [];
 
@@ -159,10 +177,12 @@ export function usePhotoTimeline(options: {
       }),
     );
 
-    return [
+    const items = [
       ...decoded.filter((item): item is MediaItem => item !== null),
       ...packedGroups.flat(),
     ];
+    setSkipped(skippedRef.current.size);
+    return items;
   }, []);
 
   const fetchPage = useCallback(
@@ -224,6 +244,8 @@ export function usePhotoTimeline(options: {
     const current = generationRef.current + 1;
     generationRef.current = current;
     cursorsRef.current = new Map();
+    skippedRef.current = new Set();
+    setSkipped(0);
     busyRef.current = true;
     setLoading(true);
     setLoadingMore(false);
@@ -276,6 +298,17 @@ export function usePhotoTimeline(options: {
     setGeneration((value) => value + 1);
   }, []);
 
+  /**
+   * Manual refresh: forget which items failed to decrypt and start from the
+   * newest message so a newly synced channel key re-decodes the whole page.
+   */
+  const resetScan = useCallback(async () => {
+    skippedRef.current.clear();
+    setSkipped(0);
+    cursorsRef.current = new Map();
+    setGeneration((value) => value + 1);
+  }, []);
+
   const removeItems = useCallback(
     (ids: readonly string[]) => {
       if (ids.length === 0) return;
@@ -296,8 +329,10 @@ export function usePhotoTimeline(options: {
     loadingMore,
     error,
     hasMore,
+    skipped,
     loadMore,
     reload,
+    resetScan,
     removeItems,
     itemCount: items.length,
   };

@@ -11,6 +11,8 @@
  * `extractable: false`, so neither the UI nor an injected script can read it.
  */
 import type {
+  ChannelKeyPayload,
+  ChannelKeyResponse,
   DecryptMetaPayload,
   DecryptPackedPayload,
   EncryptMetaPayload,
@@ -19,6 +21,7 @@ import type {
   PrepareMediaPayload,
   PrepareMediaResponse,
   RequestMap,
+  UnlockChannelPayload,
   UnlockPayload,
   UnlockResponse,
   WorkerRequest,
@@ -49,8 +52,23 @@ const PACKED_IV_BYTES = 12;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-/** The only long-lived secret in the app: an opaque, non-extractable key. */
+/**
+ * The primary vault key (non-extractable). It is also the fallback key for
+ * legacy items and for channels that never published their own header.
+ */
 let vaultKey: CryptoKey | null = null;
+
+/**
+ * Kept only while the vault is unlocked so per-channel keys can be derived
+ * from the same passphrase without asking the user again. Cleared on lock.
+ */
+let vaultPassphrase: string | null = null;
+
+/**
+ * Per-channel keys. A shared channel may use a passphrase that differs from
+ * the primary vault, so its key is cached here under its channel id.
+ */
+const channelKeys = new Map<string, CryptoKey>();
 
 /* ------------------------------------------------------------------ */
 /* Encoding helpers                                                    */
@@ -96,6 +114,15 @@ function requireKey(): CryptoKey {
   return vaultKey;
 }
 
+/** Channel key when one is cached, otherwise the primary vault key. */
+function keyFor(channelId?: string): CryptoKey {
+  if (channelId) {
+    const scoped = channelKeys.get(channelId);
+    if (scoped) return scoped;
+  }
+  return requireKey();
+}
+
 /* ------------------------------------------------------------------ */
 /* Key derivation                                                      */
 /* ------------------------------------------------------------------ */
@@ -125,8 +152,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
   );
 }
 
-async function sealVerifier(): Promise<string> {
-  const key = requireKey();
+async function sealVerifier(key: CryptoKey = requireKey()): Promise<string> {
   const iv = randomBytes(IV_BYTES);
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -138,8 +164,7 @@ async function sealVerifier(): Promise<string> {
   return `${VERIFIER_PREFIX}${toBase64Url(concat(iv, ciphertext))}`;
 }
 
-async function assertVerifier(verifier: string): Promise<void> {
-  const key = requireKey();
+async function assertVerifier(verifier: string, key: CryptoKey = requireKey()): Promise<void> {
   if (!verifier.startsWith(VERIFIER_PREFIX)) {
     throw new Error('The stored vault profile is corrupted.');
   }
@@ -165,27 +190,64 @@ async function unlock(payload: UnlockPayload): Promise<UnlockResponse> {
   if (salt.byteLength !== SALT_BYTES) throw new Error('Invalid vault salt.');
 
   const previousKey = vaultKey;
+  const previousPassphrase = vaultPassphrase;
   vaultKey = null;
+  vaultPassphrase = null;
   try {
     vaultKey = await deriveKey(payload.passphrase, salt);
     if (payload.verifier) {
       await assertVerifier(payload.verifier);
+      vaultPassphrase = payload.passphrase;
       return { salt: toBase64Url(salt), verifier: payload.verifier };
     }
     const verifier = await sealVerifier();
+    vaultPassphrase = payload.passphrase;
     return { salt: toBase64Url(salt), verifier };
   } catch (error) {
     vaultKey = previousKey;
+    vaultPassphrase = previousPassphrase;
     throw error;
   }
+}
+
+/**
+ * Re-derives a channel key from the primary passphrase and the salt published
+ * in that channel's header. Succeeds only when both belong to the same vault.
+ */
+async function syncChannelHeader(payload: ChannelKeyPayload): Promise<ChannelKeyResponse> {
+  if (!vaultKey || !vaultPassphrase) return { matched: false };
+  try {
+    const salt = fromBase64Url(payload.salt);
+    if (salt.byteLength !== SALT_BYTES) return { matched: false };
+    const candidate = await deriveKey(vaultPassphrase, salt);
+    await assertVerifier(payload.verifier, candidate);
+    channelKeys.set(payload.channelId, candidate);
+    return { matched: true };
+  } catch {
+    return { matched: false };
+  }
+}
+
+/** Derives and caches a key from a passphrase entered for one channel. */
+async function unlockChannel(payload: UnlockChannelPayload): Promise<undefined> {
+  const salt = fromBase64Url(payload.salt);
+  if (salt.byteLength !== SALT_BYTES) throw new Error('This channel publishes an invalid vault salt.');
+  const candidate = await deriveKey(payload.passphrase, salt);
+  try {
+    await assertVerifier(payload.verifier, candidate);
+  } catch {
+    throw new Error('That passphrase does not unlock this channel.');
+  }
+  channelKeys.set(payload.channelId, candidate);
+  return undefined;
 }
 
 /* ------------------------------------------------------------------ */
 /* AES-256-GCM envelope:  "TGP1" | iv(12) | ciphertext                 */
 /* ------------------------------------------------------------------ */
 
-async function encryptBytes(bytes: Uint8Array): Promise<ArrayBuffer> {
-  const key = requireKey();
+async function encryptBytes(bytes: Uint8Array, channelId?: string): Promise<ArrayBuffer> {
+  const key = keyFor(channelId);
   const iv = randomBytes(IV_BYTES);
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: iv as unknown as BufferSource },
@@ -203,8 +265,8 @@ async function encryptBytes(bytes: Uint8Array): Promise<ArrayBuffer> {
  * Packed slices use a lean envelope: `[12-byte IV][ciphertext + 16-byte tag]`.
  * No type/magic prefix is needed because the bundle index records the bounds.
  */
-async function encryptPacked(bytes: Uint8Array): Promise<Uint8Array> {
-  const key = requireKey();
+async function encryptPacked(bytes: Uint8Array, channelId?: string): Promise<Uint8Array> {
+  const key = keyFor(channelId);
   const iv = randomBytes(PACKED_IV_BYTES);
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -219,8 +281,8 @@ async function encryptPacked(bytes: Uint8Array): Promise<Uint8Array> {
   return out;
 }
 
-async function decryptPacked(payload: Uint8Array): Promise<ArrayBuffer> {
-  const key = requireKey();
+async function decryptPacked(payload: Uint8Array, channelId?: string): Promise<ArrayBuffer> {
+  const key = keyFor(channelId);
   if (payload.byteLength <= PACKED_IV_BYTES) {
     throw new Error('Packed vault slice is truncated.');
   }
@@ -242,7 +304,7 @@ async function packBundle(payload: PackBundlePayload): Promise<PackBundleRespons
   const sealed: Uint8Array[] = [];
   let total = 0;
   for (const item of payload.items) {
-    const bytes = await encryptPacked(new Uint8Array(item));
+    const bytes = await encryptPacked(new Uint8Array(item), payload.channelId);
     sealed.push(bytes);
     total += bytes.byteLength;
   }
@@ -258,8 +320,8 @@ async function packBundle(payload: PackBundlePayload): Promise<PackBundleRespons
   return { bundle: bundle.buffer, slices };
 }
 
-async function decryptBytes(payload: Uint8Array): Promise<ArrayBuffer> {
-  const key = requireKey();
+async function decryptBytes(payload: Uint8Array, channelId?: string): Promise<ArrayBuffer> {
+  const key = keyFor(channelId);
   if (payload.byteLength <= MAGIC.byteLength + IV_BYTES || !hasMagic(payload)) {
     throw new Error('This document is not a PicPocket file.');
   }
@@ -281,7 +343,7 @@ async function encryptMeta(payload: EncryptMetaPayload): Promise<{ caption: stri
   if (plaintext.byteLength > 700) {
     throw new Error('Vault metadata is too large for a Telegram caption.');
   }
-  const sealed = new Uint8Array(await encryptBytes(plaintext));
+  const sealed = new Uint8Array(await encryptBytes(plaintext, payload.channelId));
   // Drop the magic prefix; captions carry their own discriminator.
   const iv = sealed.subarray(MAGIC.byteLength, MAGIC.byteLength + IV_BYTES);
   const ciphertext = sealed.subarray(MAGIC.byteLength + IV_BYTES);
@@ -295,7 +357,7 @@ async function decryptMeta(payload: DecryptMetaPayload): Promise<{ meta: VaultMe
   const raw = fromBase64Url(payload.caption.slice(META_PREFIX.length));
   const iv = raw.subarray(0, IV_BYTES);
   const ciphertext = raw.subarray(IV_BYTES);
-  const key = requireKey();
+  const key = keyFor(payload.channelId);
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: iv as unknown as BufferSource },
     key,
@@ -509,19 +571,29 @@ const handlers: { [K in WorkerRequestType]: (payload: RequestMap[K]['payload']) 
   unlock: (payload) => unlock(payload),
   lock: async () => {
     vaultKey = null;
+    vaultPassphrase = null;
+    channelKeys.clear();
     return undefined;
   },
   prepareMedia: (payload) => prepareMedia(payload),
   encryptMeta: (payload) => encryptMeta(payload),
   decryptMeta: (payload) => decryptMeta(payload),
-  encryptBytes: async (payload) => ({ data: await encryptBytes(new Uint8Array(payload.data)) }),
+  encryptBytes: async (payload) => ({
+    data: await encryptBytes(new Uint8Array(payload.data), payload.channelId),
+  }),
   encryptChunk: async (payload) => ({ data: await encryptBytes(new Uint8Array(payload.data)) }),
-  decryptBytes: async (payload) => ({ data: await decryptBytes(new Uint8Array(payload.data)) }),
-  encryptThumb: async (payload) => ({ data: await encryptBytes(new Uint8Array(payload.data)) }),
+  decryptBytes: async (payload) => ({
+    data: await decryptBytes(new Uint8Array(payload.data), payload.channelId),
+  }),
+  encryptThumb: async (payload) => ({
+    data: await encryptBytes(new Uint8Array(payload.data), payload.channelId),
+  }),
   packBundle: (payload) => packBundle(payload),
   decryptPacked: async (payload: DecryptPackedPayload) => ({
-    data: await decryptPacked(new Uint8Array(payload.data)),
+    data: await decryptPacked(new Uint8Array(payload.data), payload.channelId),
   }),
+  syncChannelHeader: (payload) => syncChannelHeader(payload),
+  unlockChannel: (payload) => unlockChannel(payload),
 };
 
 async function dispatch(request: WorkerRequest): Promise<void> {

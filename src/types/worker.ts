@@ -44,6 +44,8 @@ export interface PrepareMediaResponse {
 
 export interface EncryptMetaPayload {
   readonly meta: VaultMetadata;
+  /** Vault channel whose key seals this item; omitted means the primary vault. */
+  readonly channelId?: string;
 }
 
 export interface EncryptMetaResponse {
@@ -53,6 +55,7 @@ export interface EncryptMetaResponse {
 
 export interface DecryptMetaPayload {
   readonly caption: string;
+  readonly channelId?: string;
 }
 
 export interface DecryptMetaResponse {
@@ -61,6 +64,7 @@ export interface DecryptMetaResponse {
 
 export interface BytesPayload {
   readonly data: ArrayBuffer;
+  readonly channelId?: string;
 }
 
 export interface BytesResponse {
@@ -69,11 +73,13 @@ export interface BytesResponse {
 
 export interface EncryptThumbPayload {
   readonly data: ArrayBuffer;
+  readonly channelId?: string;
 }
 
 export interface PackBundlePayload {
   /** Plaintext items in order; each is encrypted with its own random IV. */
   readonly items: readonly ArrayBuffer[];
+  readonly channelId?: string;
 }
 
 export interface PackedSlice {
@@ -89,6 +95,23 @@ export interface PackBundleResponse {
 
 export interface DecryptPackedPayload {
   readonly data: ArrayBuffer;
+  readonly channelId?: string;
+}
+
+/** Header published in a channel so other devices can derive its vault key. */
+export interface ChannelKeyPayload {
+  readonly channelId: string;
+  readonly salt: string;
+  readonly verifier: string;
+}
+
+export interface UnlockChannelPayload extends ChannelKeyPayload {
+  readonly passphrase: string;
+}
+
+export interface ChannelKeyResponse {
+  /** True when the primary vault key already opens this channel. */
+  readonly matched: boolean;
 }
 
 export interface RequestMap {
@@ -104,6 +127,10 @@ export interface RequestMap {
   encryptThumb: { payload: EncryptThumbPayload; response: BytesResponse };
   packBundle: { payload: PackBundlePayload; response: PackBundleResponse };
   decryptPacked: { payload: DecryptPackedPayload; response: BytesResponse };
+  /** Try the unlocked primary passphrase against a channel header. */
+  syncChannelHeader: { payload: ChannelKeyPayload; response: ChannelKeyResponse };
+  /** Derive and cache a channel key from that channel's own passphrase. */
+  unlockChannel: { payload: UnlockChannelPayload; response: undefined };
 }
 
 export type WorkerRequestType = keyof RequestMap;

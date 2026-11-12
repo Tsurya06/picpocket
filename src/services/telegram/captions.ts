@@ -1,6 +1,7 @@
 /**
  * Caption conventions used by the vault:
  *
+ *   channel header   →  "TGP1H:<base64url(json)>"             (public salt+verifier)
  *   origin document  →  "TGP1M:<base64url(iv|ciphertext)>"   (sealed metadata)
  *   preview document →  "TGP1T:<mediaId>"                     (link only)
  *   WhatsApp chunk    →  "WAB1C:<backupId>:<index>:<total>"

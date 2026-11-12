@@ -55,7 +55,7 @@ export async function loadThumbnail(item: MediaItem): Promise<Blob | null> {
         slice.byteOffset,
         slice.byteLength,
       );
-      const blob = new Blob([await cryptoClient.decryptPacked(download.bytes)], {
+      const blob = new Blob([await cryptoClient.decryptPacked(download.bytes, item.channelId)], {
         type: item.thumbMime ?? 'image/webp',
       });
       await putCachedThumb({
@@ -76,7 +76,7 @@ export async function loadThumbnail(item: MediaItem): Promise<Blob | null> {
     );
 
     const blob = download.encrypted
-      ? new Blob([await cryptoClient.decryptBytes(download.bytes)], {
+      ? new Blob([await cryptoClient.decryptBytes(download.bytes, item.channelId)], {
           type: item.thumbMime ?? 'image/webp',
         })
       : new Blob([download.bytes], { type: 'image/jpeg' });

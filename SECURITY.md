@@ -51,6 +51,12 @@ All primitives use the browser's Web Crypto API inside `src/workers/crypto.worke
 
 The AES key is created with `extractable: false`. The UI can request encryption/decryption operations, but cannot export raw key material.
 
+### Per-channel keys
+
+A channel publishes a public header message (`TGP1H:<base64url json>`) holding the salt and verifier of the vault that owns it. Other devices that sign into the same account read the header, re-derive the same key from the same passphrase, and cache it in the worker under that channel id. This also lets a device open a shared channel encrypted with a different passphrase without ever replacing the primary vault profile.
+
+While unlocked, the worker holds the vault passphrase in memory so it can derive those per-channel keys without prompting again; the passphrase is cleared on lock and never persisted. Header messages reveal the salt (public by design) and the verifier (an AES-GCM encryption of a fixed known plaintext), never key material.
+
 ### Metadata leakage
 
 - Telegram sees encrypted document sizes, MIME (`application/octet-stream`), upload timestamps, message order, and channel membership.

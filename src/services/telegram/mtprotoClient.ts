@@ -19,6 +19,11 @@ import {
   parseThumbCaption,
 } from './captions';
 import { antiBan } from './antiBan';
+import {
+  channelHeaderCaption,
+  parseChannelHeader,
+  type ChannelHeader,
+} from './channelHeader';
 
 /** Thin, typed façade over mtcute's MTProto client.
 
@@ -104,6 +109,7 @@ const FALLBACK_LANG_CODE = 'en';
 const DIALOG_LIMIT = 400;
 const MEDIA_PAGE_SIZE = 60;
 const MANIFEST_SCAN_LIMIT = 200;
+const HEADER_SCAN_LIMIT = 100;
 const RANGE_ALIGNMENT = 4096;
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
@@ -683,6 +689,43 @@ export class TelegramVaultService {
       },
       { kind: 'read' },
     );
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Channel vault headers                                              */
+
+  /**
+   * Looks for a `TGP1H:` header in the channel's recent history. The header is
+   * posted once by whichever device first initialises the channel, so a scan
+   * of the newest messages is enough for every later device to find it.
+   */
+  async findChannelHeader(
+    channelId: string,
+  ): Promise<{ readonly messageId: number; readonly header: ChannelHeader } | null> {
+    const client = this.requireClient();
+    const chat = await this.resolveChat(channelId);
+    return antiBan.run(
+      async () => {
+        const page = await client.getHistory(chat.inputPeer, { limit: HEADER_SCAN_LIMIT });
+        for (const message of page) {
+          const header = parseChannelHeader(message.text);
+          if (header) return { messageId: message.id, header };
+        }
+        return null;
+      },
+      { kind: 'read' },
+    );
+  }
+
+  /** Publishes the channel vault header so other devices can derive its key. */
+  async publishChannelHeader(channelId: string, header: ChannelHeader): Promise<number> {
+    const client = this.requireClient();
+    const chat = await this.resolveChat(channelId);
+    const message = await antiBan.run(
+      () => client.sendText(chat.inputPeer, channelHeaderCaption(header)),
+      { kind: 'write' },
+    );
+    return message.id;
   }
 
   /* ---------------------------------------------------------------- */

@@ -55,9 +55,9 @@ export function useFullMedia(item: MediaItem | null, enabled = true): FullMediaS
             });
 
         const plaintext = item.packed
-          ? await cryptoClient.decryptPacked(download.bytes)
+          ? await cryptoClient.decryptPacked(download.bytes, item.channelId)
           : item.source === 'vault' || download.encrypted
-            ? await cryptoClient.decryptBytes(download.bytes)
+            ? await cryptoClient.decryptBytes(download.bytes, item.channelId)
             : download.bytes;
 
         if (cancelled) return;

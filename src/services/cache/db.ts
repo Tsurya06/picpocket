@@ -46,6 +46,17 @@ export interface SettingRow {
 }
 
 /**
+ * Public vault header of one channel, as published in Telegram. Cached so the
+ * app can re-derive the channel key before the header message is fetched.
+ */
+export interface ChannelKeyRow {
+  channelId: string;
+  saltB64: string;
+  verifierB64: string;
+  lastUsed: number;
+}
+
+/**
  * The MTProto session, sealed with the vault key. Nothing can read this row
  * without the passphrase, so a stolen laptop or an XSS payload cannot hijack
  * the Telegram account from IndexedDB.
@@ -104,6 +115,7 @@ class PicPocketDatabase extends Dexie {
   avatars!: Table<AvatarRow, string>;
   settings!: Table<SettingRow, string>;
   sessions!: Table<SessionRow, string>;
+  channelKeys!: Table<ChannelKeyRow, string>;
   whatsappFiles!: Table<WhatsAppFileRow, [string, string]>;
   whatsappBackups!: Table<WhatsAppBackupRow, string>;
 
@@ -125,6 +137,10 @@ class PicPocketDatabase extends Dexie {
     // Dexie cannot change an existing primary key, so use a new cache table.
     this.version(3).stores({
       mediaIndex: 'id, channelId, takenAt, lastUsed',
+    });
+    // Per-channel vault headers for cross-device decryption.
+    this.version(4).stores({
+      channelKeys: 'channelId',
     });
   }
 }
@@ -273,6 +289,28 @@ export const saveVaultProfile = (profile: VaultProfile): Promise<void> =>
   setSetting('vault.profile', profile);
 
 /* ------------------------------------------------------------------ */
+/* Channel vault headers                                               */
+/* ------------------------------------------------------------------ */
+
+export async function getChannelKeyRow(channelId: string): Promise<ChannelKeyRow | undefined> {
+  return db.channelKeys.get(channelId);
+}
+
+export async function getChannelKeyRows(): Promise<ChannelKeyRow[]> {
+  return db.channelKeys.toArray();
+}
+
+export async function putChannelKeyRow(
+  row: Omit<ChannelKeyRow, 'lastUsed'>,
+): Promise<void> {
+  await db.channelKeys.put({ ...row, lastUsed: Date.now() });
+}
+
+export async function clearChannelKeys(): Promise<void> {
+  await db.channelKeys.clear();
+}
+
+/* ------------------------------------------------------------------ */
 /* Encrypted MTProto session                                           */
 /* ------------------------------------------------------------------ */
 
@@ -328,10 +366,11 @@ export async function clearWhatsAppManifest(channelId: string): Promise<void> {
 export async function resetLocalData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.sessions, db.settings, db.thumbs, db.media, db.mediaIndex, db.avatars, db.channels, db.whatsappFiles, db.whatsappBackups],
+    [db.sessions, db.settings, db.thumbs, db.media, db.mediaIndex, db.avatars, db.channels, db.channelKeys, db.whatsappFiles, db.whatsappBackups],
     async () => {
       await Promise.all([
         db.sessions.clear(),
+        db.channelKeys.clear(),
         db.settings.clear(),
         db.thumbs.clear(),
         db.media.clear(),

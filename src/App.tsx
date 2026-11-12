@@ -16,6 +16,7 @@ import { useTelegramAuth } from './hooks/useTelegramAuth';
 import { useChannelSelector } from './hooks/useChannelSelector';
 import { usePhotoTimeline } from './hooks/usePhotoTimeline';
 import { useUploader } from './hooks/useUploader';
+import { useChannelVaults } from './hooks/useChannelVaults';
 import { describeError, telegramService } from './services/telegram/mtprotoClient';
 import { filterMedia, groupTimeline } from './lib/timeline';
 import { AuthScreen } from './components/AuthScreen';
@@ -25,6 +26,7 @@ import { WhatsAppBackupView } from './components/WhatsAppBackupView';
 import { PhotoGrid } from './components/PhotoGrid';
 import { Lightbox } from './components/Lightbox';
 import { ChannelSelectorModal } from './components/ChannelSelectorModal';
+import { ChannelVaultBanner } from './components/ChannelVaultBanner';
 import { SettingsModal } from './components/SettingsModal';
 import { UploadPill } from './components/UploadPill';
 import { Button } from './components/ui/Button';
@@ -104,6 +106,18 @@ export default function App() {
   }, [timeline]);
 
   const uploader = useUploader(handleUploadsFinished);
+
+  // Per-channel keys so a channel sealed on another device can decrypt here.
+  const vaults = useChannelVaults({
+    channelIds: channels.selectedIds,
+    enabled: ready,
+    profile: auth.profile,
+  });
+
+  useEffect(() => {
+    if (vaults.version === 0) return;
+    void timeline.resetScan();
+  }, [timeline.resetScan, vaults.version]);
 
   const targetChannelId = viewChannelId ?? channels.selectedIds[0] ?? null;
   const backupChannelTitle =
@@ -369,7 +383,7 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => void timeline.reload()}
+              onClick={() => void timeline.resetScan()}
               aria-label="Sync channels"
               title="Sync channels"
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-ink"
@@ -386,6 +400,16 @@ export default function App() {
             </div>
           </div>
         ) : null}
+
+        <ChannelVaultBanner
+          channels={vaults.lockedIds.map((id) => ({
+            id,
+            title: channels.channels.find((channel) => channel.id === id)?.title ?? 'Channel',
+          }))}
+          skipped={timeline.skipped}
+          error={vaults.error}
+          onUnlock={vaults.unlock}
+        />
 
         {channels.loading && !hasChannels ? (
           <div className="mx-auto max-w-[1800px] px-3 pb-24 pt-6 sm:px-6">

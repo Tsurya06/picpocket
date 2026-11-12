@@ -86,16 +86,28 @@ class CryptoWorkerClient {
     return this.request('prepareMedia', input);
   }
 
-  encryptMeta(meta: RequestMap['encryptMeta']['payload']['meta']): Promise<string> {
-    return this.request('encryptMeta', { meta }).then((result) => result.caption);
+  encryptMeta(
+    meta: RequestMap['encryptMeta']['payload']['meta'],
+    channelId?: string,
+  ): Promise<string> {
+    return this.request('encryptMeta', { meta, ...(channelId ? { channelId } : {}) }).then(
+      (result) => result.caption,
+    );
   }
 
-  decryptMeta(caption: string): Promise<RequestMap['decryptMeta']['response']['meta']> {
-    return this.request('decryptMeta', { caption }).then((result) => result.meta);
+  decryptMeta(
+    caption: string,
+    channelId?: string,
+  ): Promise<RequestMap['decryptMeta']['response']['meta']> {
+    return this.request('decryptMeta', { caption, ...(channelId ? { channelId } : {}) }).then(
+      (result) => result.meta,
+    );
   }
 
-  encryptBytes(data: ArrayBuffer): Promise<ArrayBuffer> {
-    return this.request('encryptBytes', { data }).then((result) => result.data);
+  encryptBytes(data: ArrayBuffer, channelId?: string): Promise<ArrayBuffer> {
+    return this.request('encryptBytes', { data, ...(channelId ? { channelId } : {}) }).then(
+      (result) => result.data,
+    );
   }
 
   /** Encrypts one bounded chunk; the caller streams the source file. */
@@ -103,22 +115,50 @@ class CryptoWorkerClient {
     return this.request('encryptChunk', { data }).then((result) => result.data);
   }
 
-  decryptBytes(data: ArrayBuffer): Promise<ArrayBuffer> {
-    return this.request('decryptBytes', { data }).then((result) => result.data);
+  decryptBytes(data: ArrayBuffer, channelId?: string): Promise<ArrayBuffer> {
+    return this.request('decryptBytes', { data, ...(channelId ? { channelId } : {}) }).then(
+      (result) => result.data,
+    );
   }
 
-  encryptThumb(data: ArrayBuffer): Promise<ArrayBuffer> {
-    return this.request('encryptThumb', { data }).then((result) => result.data);
+  encryptThumb(data: ArrayBuffer, channelId?: string): Promise<ArrayBuffer> {
+    return this.request('encryptThumb', { data, ...(channelId ? { channelId } : {}) }).then(
+      (result) => result.data,
+    );
   }
 
   /** Encrypts every item separately, then concatenates them into one bundle. */
-  packBundle(items: readonly ArrayBuffer[]): Promise<RequestMap['packBundle']['response']> {
-    return this.request('packBundle', { items: [...items] });
+  packBundle(
+    items: readonly ArrayBuffer[],
+    channelId?: string,
+  ): Promise<RequestMap['packBundle']['response']> {
+    return this.request('packBundle', { items: [...items], ...(channelId ? { channelId } : {}) });
   }
 
   /** Decrypts exactly one packed slice (`[IV][ciphertext+tag]`). */
-  decryptPacked(data: ArrayBuffer): Promise<ArrayBuffer> {
-    return this.request('decryptPacked', { data }).then((result) => result.data);
+  decryptPacked(data: ArrayBuffer, channelId?: string): Promise<ArrayBuffer> {
+    return this.request('decryptPacked', { data, ...(channelId ? { channelId } : {}) }).then(
+      (result) => result.data,
+    );
+  }
+
+  /**
+   * Tries the already-unlocked primary passphrase against a channel header.
+   * Returns true when the same vault owns that channel and the key is cached.
+   */
+  async syncChannelHeader(channelId: string, salt: string, verifier: string): Promise<boolean> {
+    const result = await this.request('syncChannelHeader', { channelId, salt, verifier });
+    return result.matched;
+  }
+
+  /** Derives and caches a channel key from a passphrase entered for it. */
+  async unlockChannel(
+    channelId: string,
+    passphrase: string,
+    salt: string,
+    verifier: string,
+  ): Promise<void> {
+    await this.request('unlockChannel', { channelId, passphrase, salt, verifier });
   }
 }
 

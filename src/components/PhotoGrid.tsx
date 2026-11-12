@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { File, FileArchive, FileText, ImageOff, Lock, Play } from 'lucide-react';
 import type { MediaItem, MonthGroup } from '../types/media';
 import { formatBytes, formatDuration } from '../lib/format';
@@ -16,15 +17,10 @@ export interface PhotoGridProps {
   readonly emptyState: ReactNode;
 }
 
-const MIN_RATIO = 0.62;
-const MAX_RATIO = 1.9;
-
-const aspectRatioFor = (item: MediaItem): string => {
-  if (item.kind === 'file') return '4 / 3';
-  if (item.width <= 0 || item.height <= 0) return '1 / 1';
-  const ratio = Math.min(MAX_RATIO, Math.max(MIN_RATIO, item.width / item.height));
-  return `${ratio}`;
-};
+const MIN_TILE = 148;
+const GAP = 4;
+const MONTH_ROW = 56;
+const DAY_ROW = 34;
 
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
@@ -38,9 +34,18 @@ const fileIconFor = (item: MediaItem): typeof File => {
   return File;
 };
 
-function MediaTile({ item, onOpen }: { item: MediaItem; onOpen: (item: MediaItem) => void }) {
+function MediaTile({
+  item,
+  onOpen,
+  fill,
+}: {
+  item: MediaItem;
+  onOpen: (item: MediaItem) => void;
+  fill: boolean;
+}) {
   const [tileRef, nearViewport] = useNearViewport<HTMLButtonElement>();
   const { url, loading, failed } = useThumbnail(item, nearViewport);
+  const sizing = fill ? 'h-full w-full' : 'w-full';
 
   if (item.kind === 'file') {
     const FileIcon = fileIconFor(item);
@@ -49,8 +54,7 @@ function MediaTile({ item, onOpen }: { item: MediaItem; onOpen: (item: MediaItem
         ref={tileRef}
         type="button"
         onClick={() => onOpen(item)}
-        className="tile-in group relative block w-full overflow-hidden rounded-[var(--radius-tile)] border border-line bg-elevated text-left focus-visible:outline-offset-4"
-        style={{ aspectRatio: aspectRatioFor(item) }}
+        className={`tile-in group relative block overflow-hidden rounded-[var(--radius-tile)] border border-line bg-elevated text-left focus-visible:outline-offset-4 ${sizing}`}
         aria-label={`File ${item.fileName}`}
       >
         <span className="flex h-full w-full flex-col justify-between p-3">
@@ -84,8 +88,7 @@ function MediaTile({ item, onOpen }: { item: MediaItem; onOpen: (item: MediaItem
       ref={tileRef}
       type="button"
       onClick={() => onOpen(item)}
-      className="tile-in group relative block w-full overflow-hidden rounded-[var(--radius-tile)] bg-surface text-left focus-visible:outline-offset-4"
-      style={{ aspectRatio: aspectRatioFor(item) }}
+      className={`tile-in group relative block overflow-hidden rounded-[var(--radius-tile)] bg-surface text-left focus-visible:outline-offset-4 ${sizing}`}
       aria-label={`${item.kind === 'video' ? 'Video' : 'Photo'} ${item.fileName}`}
     >
       {url ? (
@@ -98,7 +101,9 @@ function MediaTile({ item, onOpen }: { item: MediaItem; onOpen: (item: MediaItem
           className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
         />
       ) : (
-        <div className={`absolute inset-0 ${loading ? 'shimmer' : 'flex items-center justify-center bg-surface'}`}>
+        <div
+          className={`absolute inset-0 ${loading ? 'shimmer' : 'flex items-center justify-center bg-surface'}`}
+        >
           {!loading ? <ImageOff size={22} className="text-muted/60" /> : null}
         </div>
       )}
@@ -130,6 +135,40 @@ function MediaTile({ item, onOpen }: { item: MediaItem; onOpen: (item: MediaItem
   );
 }
 
+type GridRow =
+  | { readonly kind: 'month'; readonly key: string; readonly label: string; readonly count: number }
+  | { readonly kind: 'day'; readonly key: string; readonly label: string }
+  | { readonly kind: 'items'; readonly key: string; readonly items: readonly MediaItem[] };
+
+/**
+ * Flattens the grouped timeline into virtual rows: one per month header, one
+ * per day header, and fixed-width media rows. Only the rows intersecting the
+ * viewport are mounted, so DOM size stays constant whether the channel holds
+ * 50 photos or 50 000.
+ */
+const buildRows = (groups: readonly MonthGroup[], columns: number): GridRow[] => {
+  const rows: GridRow[] = [];
+  for (const month of groups) {
+    rows.push({
+      kind: 'month',
+      key: `month:${month.key}`,
+      label: month.label,
+      count: month.count,
+    });
+    for (const day of month.days) {
+      rows.push({ kind: 'day', key: `day:${day.key}`, label: day.label });
+      for (let index = 0; index < day.items.length; index += columns) {
+        rows.push({
+          kind: 'items',
+          key: `row:${day.key}:${index}`,
+          items: day.items.slice(index, index + columns),
+        });
+      }
+    }
+  }
+  return rows;
+};
+
 export function PhotoGrid({
   groups,
   loading,
@@ -140,6 +179,56 @@ export function PhotoGrid({
   emptyState,
 }: PhotoGridProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  const [offsetTop, setOffsetTop] = useState(0);
+
+  // Column count follows the container width so tiles keep a usable size.
+  useEffect(() => {
+    const element = listRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    setWidth(element.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const element = listRef.current;
+    if (!element) return;
+    const measure = (): void => {
+      setOffsetTop(element.getBoundingClientRect().top + window.scrollY);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [groups, width]);
+
+  const columns = Math.max(2, Math.min(8, Math.floor((width + GAP) / (MIN_TILE + GAP)) || 2));
+  const tileSize = width > 0 ? (width - GAP * (columns - 1)) / columns : MIN_TILE;
+  const rows = buildRows(groups, columns);
+
+  const sizeOf = (row: GridRow | undefined): number => {
+    if (!row) return tileSize + GAP;
+    if (row.kind === 'month') return MONTH_ROW;
+    if (row.kind === 'day') return DAY_ROW;
+    return tileSize + GAP;
+  };
+
+  const virtualizer = useWindowVirtualizer({
+    count: rows.length,
+    estimateSize: (index) => sizeOf(rows[index]),
+    overscan: 6,
+    scrollMargin: offsetTop,
+    getItemKey: (index) => rows[index]?.key ?? index,
+  });
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [columns, tileSize, virtualizer]);
 
   useEffect(() => {
     const target = sentinelRef.current;
@@ -169,32 +258,61 @@ export function PhotoGrid({
     return <div className="px-3 pb-24 sm:px-6">{emptyState}</div>;
   }
 
+  const virtualRows = virtualizer.getVirtualItems();
+
   return (
     <div className="px-3 pb-24 sm:px-6">
       <div className="mx-auto max-w-[1800px]">
-        {groups.map((month) => (
-          <section key={month.key} aria-label={month.label}>
-            <h2 className="sticky top-[56px] z-20 -mx-3 flex items-baseline gap-3 bg-app/95 px-3 pb-2 pt-5 text-[17px] font-semibold tracking-tight text-ink backdrop-blur-xl sm:-mx-6 sm:px-6">
-              {month.label}
-              <span className="text-xs font-normal text-muted">
-                {month.count} {month.count === 1 ? 'item' : 'items'}
-              </span>
-            </h2>
+        <div
+          ref={listRef}
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualRows.map((virtualRow) => {
+            const row = rows[virtualRow.index];
+            if (!row) return null;
+            return (
+              <div
+                key={virtualRow.key}
+                className="absolute inset-x-0 top-0"
+                style={{
+                  height: virtualRow.size,
+                  transform: `translateY(${virtualRow.start - offsetTop}px)`,
+                }}
+              >
+                {row.kind === 'month' ? (
+                  <h2 className="flex h-full items-baseline gap-3 pt-5 text-[17px] font-semibold tracking-tight text-ink">
+                    {row.label}
+                    <span className="text-xs font-normal text-muted">
+                      {row.count} {row.count === 1 ? 'item' : 'items'}
+                    </span>
+                  </h2>
+                ) : null}
 
-            {month.days.map((day) => (
-              <div key={day.key}>
-                <h3 className="sticky top-[98px] z-10 -mx-3 bg-app/90 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted backdrop-blur-xl sm:-mx-6 sm:px-6">
-                  {day.label}
-                </h3>
-                <div className="masonry">
-                  {day.items.map((item) => (
-                    <MediaTile key={item.id} item={item} onOpen={onOpen} />
-                  ))}
-                </div>
+                {row.kind === 'day' ? (
+                  <h3 className="flex h-full items-center text-xs font-semibold uppercase tracking-wide text-muted">
+                    {row.label}
+                  </h3>
+                ) : null}
+
+                {row.kind === 'items' ? (
+                  <div
+                    className="grid h-full"
+                    style={{
+                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                      gap: GAP,
+                      height: tileSize,
+                    }}
+                  >
+                    {row.items.map((item) => (
+                      <MediaTile key={item.id} item={item} onOpen={onOpen} fill />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ))}
-          </section>
-        ))}
+            );
+          })}
+        </div>
 
         <div ref={sentinelRef} className="h-10" />
 
