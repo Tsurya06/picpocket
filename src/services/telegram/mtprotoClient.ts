@@ -699,22 +699,30 @@ export class TelegramVaultService {
    * posted once by whichever device first initialises the channel, so a scan
    * of the newest messages is enough for every later device to find it.
    */
-  async findChannelHeader(
+  async findChannelHeaders(
     channelId: string,
-  ): Promise<{ readonly messageId: number; readonly header: ChannelHeader } | null> {
+  ): Promise<ReadonlyArray<{ readonly messageId: number; readonly header: ChannelHeader }>> {
     const client = this.requireClient();
     const chat = await this.resolveChat(channelId);
     return antiBan.run(
       async () => {
         const page = await client.getHistory(chat.inputPeer, { limit: HEADER_SCAN_LIMIT });
+        const headers: Array<{ messageId: number; header: ChannelHeader }> = [];
         for (const message of page) {
           const header = parseChannelHeader(message.text);
-          if (header) return { messageId: message.id, header };
+          if (header) headers.push({ messageId: message.id, header });
         }
-        return null;
+        return headers;
       },
       { kind: 'read' },
     );
+  }
+
+  async findChannelHeader(
+    channelId: string,
+  ): Promise<{ readonly messageId: number; readonly header: ChannelHeader } | null> {
+    const headers = await this.findChannelHeaders(channelId);
+    return headers[0] ?? null;
   }
 
   /** Publishes the channel vault header so other devices can derive its key. */

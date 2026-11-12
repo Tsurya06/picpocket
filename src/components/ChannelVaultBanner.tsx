@@ -79,9 +79,18 @@ export function ChannelVaultBanner({
         </p>
 
         {opened ? (
-          <p className="mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            Channel unlocked. Decrypting its items…
-          </p>
+          <div className="mt-2 space-y-1">
+            <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+              Channel unlocked. Decrypting its items…
+            </p>
+            {skipped > 0 ? (
+              <p className="text-[11px] text-danger">
+                Still cannot read {skipped} item{skipped === 1 ? '' : 's'} here, so this channel’s
+                media was sealed by yet another vault key. Press refresh after the device that
+                uploaded it opens the channel.
+              </p>
+            ) : null}
+          </div>
         ) : (
           <form
             onSubmit={(event) => void submit(event)}

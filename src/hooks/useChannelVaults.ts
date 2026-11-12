@@ -99,60 +99,73 @@ export function useChannelVaults(options: {
                 opened += 1;
               }
               mark(channelId, 'ready');
-            } else {
-              mark(channelId, 'locked');
+              continue;
             }
-            continue;
+            // The cached header belongs to another vault; scan the channel for
+            // one that opens with our passphrase before giving up.
           }
 
-          const found = await telegramService.findChannelHeader(channelId);
+          const headers = await telegramService.findChannelHeaders(channelId);
           if (cancelled || runRef.current !== run) return;
 
-          if (found) {
-            await putChannelKeyRow({
-              channelId,
-              saltB64: found.header.saltB64,
-              verifierB64: found.header.verifierB64,
-            });
+          // A channel can carry several headers when different vaults wrote to
+          // it; the first one that opens with our passphrase is ours.
+          let matchedAny = false;
+          for (const candidate of headers) {
             const matched = await cryptoClient.syncChannelHeader(
               channelId,
-              found.header.saltB64,
-              found.header.verifierB64,
+              candidate.header.saltB64,
+              candidate.header.verifierB64,
             );
             if (cancelled || runRef.current !== run) return;
-            if (matched) {
-              if (!readyRef.current.has(channelId)) {
-                readyRef.current.add(channelId);
-                opened += 1;
-              }
-              mark(channelId, 'ready');
-            } else {
-              mark(channelId, 'locked');
-            }
-            continue;
-          }
-
-          // First device in this channel: publish our own header so future
-          // devices can derive the same key. Read-only channels cannot be
-          // posted to; the primary key still works locally.
-          try {
-            await telegramService.publishChannelHeader(channelId, {
-              v: 1,
-              saltB64: profile.salt,
-              verifierB64: profile.verifier,
-            });
+            if (!matched) continue;
             await putChannelKeyRow({
               channelId,
-              saltB64: profile.salt,
-              verifierB64: profile.verifier,
+              saltB64: candidate.header.saltB64,
+              verifierB64: candidate.header.verifierB64,
             });
-          } catch {
-            // No posting rights: keep going with the primary key.
+            if (!readyRef.current.has(channelId)) {
+              readyRef.current.add(channelId);
+              opened += 1;
+            }
+            matchedAny = true;
+            mark(channelId, 'ready');
+            break;
+          }
+          if (matchedAny) continue;
+
+          const ours = headers.find((entry) => entry.header.saltB64 === profile.salt);
+          if (!ours) {
+            // Publish our own header so devices sharing this passphrase can
+            // find it, even when another vault already wrote to the channel.
+            // Read-only channels reject the write; the primary key still works.
+            try {
+              await telegramService.publishChannelHeader(channelId, {
+                v: 1,
+                saltB64: profile.salt,
+                verifierB64: profile.verifier,
+              });
+            } catch {
+              // No posting rights here.
+            }
           }
           if (cancelled || runRef.current !== run) return;
-          // The primary key already opened this channel, so nothing to reload.
-          readyRef.current.add(channelId);
-          mark(channelId, 'ready');
+
+          const firstHeader = headers[0];
+          if (firstHeader) {
+            // Nothing opened: remember the header so the banner can prompt for
+            // this specific channel's passphrase.
+            await putChannelKeyRow({
+              channelId,
+              saltB64: firstHeader.header.saltB64,
+              verifierB64: firstHeader.header.verifierB64,
+            });
+            mark(channelId, 'locked');
+          } else {
+            // No header at all and we could not publish one: use the primary key.
+            readyRef.current.add(channelId);
+            mark(channelId, 'ready');
+          }
         } catch (caught) {
           if (cancelled || runRef.current !== run) return;
           setError(describeError(caught));

@@ -123,6 +123,34 @@ function keyFor(channelId?: string): CryptoKey {
   return requireKey();
 }
 
+/**
+ * Tries the channel key first and the primary key second. A channel can hold
+ * items sealed by either key — for example media uploaded before a header was
+ * published — so a single strict key would hide half of the library.
+ */
+async function decryptWithAnyKey<T>(
+  channelId: string | undefined,
+  run: (key: CryptoKey) => Promise<T>,
+): Promise<T> {
+  const keys: CryptoKey[] = [];
+  const scoped = channelId ? channelKeys.get(channelId) : undefined;
+  if (scoped) keys.push(scoped);
+  if (vaultKey && !keys.includes(vaultKey)) keys.push(vaultKey);
+  if (keys.length === 0) requireKey();
+
+  let lastError: unknown = null;
+  for (const key of keys) {
+    try {
+      return await run(key);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Decryption failed with every available key.');
+}
+
 /* ------------------------------------------------------------------ */
 /* Key derivation                                                      */
 /* ------------------------------------------------------------------ */
@@ -282,17 +310,18 @@ async function encryptPacked(bytes: Uint8Array, channelId?: string): Promise<Uin
 }
 
 async function decryptPacked(payload: Uint8Array, channelId?: string): Promise<ArrayBuffer> {
-  const key = keyFor(channelId);
   if (payload.byteLength <= PACKED_IV_BYTES) {
     throw new Error('Packed vault slice is truncated.');
   }
   const iv = payload.subarray(0, PACKED_IV_BYTES);
   const ciphertext = payload.subarray(PACKED_IV_BYTES);
   try {
-    return await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as unknown as BufferSource },
-      key,
-      ciphertext as unknown as BufferSource,
+    return await decryptWithAnyKey(channelId, (key) =>
+      crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+        key,
+        ciphertext as unknown as BufferSource,
+      ),
     );
   } catch {
     throw new Error('Packed slice decryption failed: wrong key or corrupted bundle.');
@@ -321,17 +350,18 @@ async function packBundle(payload: PackBundlePayload): Promise<PackBundleRespons
 }
 
 async function decryptBytes(payload: Uint8Array, channelId?: string): Promise<ArrayBuffer> {
-  const key = keyFor(channelId);
   if (payload.byteLength <= MAGIC.byteLength + IV_BYTES || !hasMagic(payload)) {
     throw new Error('This document is not a PicPocket file.');
   }
   const iv = payload.subarray(MAGIC.byteLength, MAGIC.byteLength + IV_BYTES);
   const ciphertext = payload.subarray(MAGIC.byteLength + IV_BYTES);
   try {
-    return await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv as unknown as BufferSource },
-      key,
-      ciphertext as unknown as BufferSource,
+    return await decryptWithAnyKey(channelId, (key) =>
+      crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+        key,
+        ciphertext as unknown as BufferSource,
+      ),
     );
   } catch {
     throw new Error('Decryption failed: wrong passphrase or corrupted file.');
@@ -357,11 +387,12 @@ async function decryptMeta(payload: DecryptMetaPayload): Promise<{ meta: VaultMe
   const raw = fromBase64Url(payload.caption.slice(META_PREFIX.length));
   const iv = raw.subarray(0, IV_BYTES);
   const ciphertext = raw.subarray(IV_BYTES);
-  const key = keyFor(payload.channelId);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: iv as unknown as BufferSource },
-    key,
-    ciphertext as unknown as BufferSource,
+  const plaintext = await decryptWithAnyKey(payload.channelId, (key) =>
+    crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+      key,
+      ciphertext as unknown as BufferSource,
+    ),
   );
   const parsed: unknown = JSON.parse(textDecoder.decode(plaintext));
   if (!isVaultMetadata(parsed)) throw new Error('Vault metadata is malformed.');
