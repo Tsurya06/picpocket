@@ -1,0 +1,180 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-app: var(--app-bg);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --font-sans: 'Inter', 'Roboto', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --radius-tile: 6px;
+}
+
+:root {
+  color-scheme: light;
+  --app-bg: #ffffff;
+  --surface: #f6f7f9;
+  --elevated: #ffffff;
+  --ink: #1f2023;
+  --muted: #5f6368;
+  --line: #e3e5e8;
+  --accent: #1a73e8;
+  --accent-ink: #ffffff;
+  --accent-soft: #e8f0fe;
+  --danger: #d93025;
+}
+
+.dark {
+  color-scheme: dark;
+  --app-bg: #0f1115;
+  --surface: #16181d;
+  --elevated: #1e2126;
+  --ink: #e8eaed;
+  --muted: #9aa0a6;
+  --line: #2a2e35;
+  --accent: #8ab4f8;
+  --accent-ink: #0b1020;
+  --accent-soft: #1b2a41;
+  --danger: #f28b82;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--app-bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Pointer cursor on every clickable control. Disabled buttons keep
+   not-allowed via their component classes. */
+button:not(:disabled),
+a[href],
+[role='button']:not([aria-disabled='true']):not([disabled]),
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Google Photos–style timeline: staggered fade-in for freshly loaded tiles. */
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tile-in {
+  animation: tile-in 260ms ease-out both;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    100deg,
+    var(--surface) 20%,
+    color-mix(in srgb, var(--surface) 65%, var(--ink) 8%) 40%,
+    var(--surface) 60%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Masonry columns: aspect-ratio-preserving tiles with no JS layout. */
+.masonry {
+  column-gap: 6px;
+  columns: 2;
+}
+@media (min-width: 640px) {
+  .masonry {
+    columns: 3;
+  }
+}
+@media (min-width: 1024px) {
+  .masonry {
+    columns: 4;
+  }
+}
+@media (min-width: 1440px) {
+  .masonry {
+    columns: 5;
+  }
+}
+@media (min-width: 1900px) {
+  .masonry {
+    columns: 6;
+  }
+}
+
+.masonry > * {
+  break-inside: avoid;
+  margin-bottom: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-in,
+  .shimmer {
+    animation: none;
+  }
+}
