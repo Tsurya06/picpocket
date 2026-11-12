@@ -61,7 +61,7 @@ A private, client-side Google Photos–style gallery that uses your own Telegram
 
 ## Deploy
 
-The app is fully static after build. `npm run build` emits `dist/` with the service worker, manifest, and Cloudflare routing files.
+The app is fully static after build. `npm run build` emits `dist/` with the service worker and web manifest.
 
 ### Vercel
 
@@ -74,13 +74,21 @@ Import the repository in Vercel and use these settings:
 
 `vercel.json` adds SPA rewrites plus `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a Content Security Policy that allows WebAssembly, blob/data media, and `wss://*.web.telegram.org`.
 
-### Cloudflare Pages
+### Cloudflare Workers (static assets)
+
+`wrangler.jsonc` deploys `dist/` as static assets and sets
+`not_found_handling: "single-page-application"`, so client-side routes fall back
+to `index.html` without a `_redirects` file (which Cloudflare rejects as an
+infinite loop).
 
 - **Build command:** `npm run build`
-- **Build output directory:** `dist`
-- **Environment variables:** same as above
+- **Deploy command:** `npx wrangler deploy`
+- **Root directory:** repository root
+- **Variables and secrets:** add `VITE_TELEGRAM_API_ID` and `VITE_TELEGRAM_API_HASH` under **Settings → Build → Variables and secrets**. Vite inlines `VITE_*` values at build time, so rebuild after changing them.
 
-`public/_redirects` provides the SPA fallback and `public/_headers` applies the same security headers on Cloudflare Pages.
+`public/_headers` still applies the security headers to the deployed assets. For
+Cloudflare Pages, use the same build command and output directory, and delete any
+`_redirects` file so the platform's SPA routing handles deep links.
 
 > HTTPS is required: Web Crypto, service workers, and MTProto WebSockets are unavailable on plain HTTP origins other than localhost.
 
