@@ -17,6 +17,7 @@ import { useChannelSelector } from './hooks/useChannelSelector';
 import { usePhotoTimeline } from './hooks/usePhotoTimeline';
 import { useUploader } from './hooks/useUploader';
 import { useChannelVaults } from './hooks/useChannelVaults';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { describeError, telegramService } from './services/telegram/mtprotoClient';
 import { filterMedia, groupTimeline } from './lib/timeline';
 import { AuthScreen } from './components/AuthScreen';
@@ -93,6 +94,7 @@ export default function App() {
   const [sharedFiles, setSharedFiles] = useState<File[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const photosRef = useRef<HTMLElement | null>(null);
   const autoOpenedRef = useRef(false);
   const dragDepthRef = useRef(0);
 
@@ -119,19 +121,14 @@ export default function App() {
     void timeline.resetScan();
   }, [timeline.resetScan, vaults.version]);
 
-  // If items stayed encrypted after the first header scan, retry the scan once
-  // before asking the user for a passphrase.
-  const recheckedRef = useRef(false);
-  useEffect(() => {
-    if (!vaults.settled) return;
-    if (timeline.skipped === 0) {
-      recheckedRef.current = false;
-      return;
-    }
-    if (vaults.lockedIds.length > 0 || recheckedRef.current) return;
-    recheckedRef.current = true;
-    vaults.recheck();
-  }, [timeline.skipped, vaults.lockedIds.length, vaults.recheck, vaults.settled]);
+
+  const pull = usePullToRefresh(
+    photosRef,
+    () => {
+      void timeline.resetScan();
+    },
+    ready && view === 'photos' && channels.selectedIds.length > 0,
+  );
 
   const targetChannelId = viewChannelId ?? channels.selectedIds[0] ?? null;
   const backupChannelTitle =
@@ -342,6 +339,22 @@ export default function App() {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      {pull.distance > 0 ? (
+        <div
+          className="pointer-events-none fixed left-1/2 top-16 z-40 -translate-x-1/2"
+          style={{ opacity: Math.min(1, pull.distance / 60) }}
+        >
+          <div className="flex items-center gap-2 rounded-full border border-line bg-elevated px-3.5 py-1.5 text-xs font-medium text-muted shadow-lg">
+            <RefreshCw
+              size={13}
+              className={pull.pulled ? 'text-accent' : ''}
+              style={{ transform: `rotate(${Math.round(pull.distance * 3)}deg)` }}
+            />
+            {pull.pulled ? 'Release to refresh' : 'Pull to refresh'}
+          </div>
+        </div>
+      ) : null}
+
       <TopBar
         query={query}
         onQueryChange={setQuery}
@@ -360,7 +373,7 @@ export default function App() {
 
         <div className="min-w-0 flex-1">
           {view === 'photos' ? (
-          <main className="pb-20 md:pb-0">
+          <main ref={photosRef} className="pb-20 md:pb-0">
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-end justify-between gap-4 px-4 pb-1 pt-6 sm:px-6">
           <div className="min-w-0">
             <h1 className="truncate text-[26px] font-semibold tracking-tight text-ink sm:text-[30px]">

@@ -246,6 +246,8 @@ export function usePhotoTimeline(options: {
     cursorsRef.current = new Map();
     skippedRef.current = new Set();
     setSkipped(0);
+    // Never show another channel's timeline while the new page loads.
+    setItems([]);
     busyRef.current = true;
     setLoading(true);
     setLoadingMore(false);

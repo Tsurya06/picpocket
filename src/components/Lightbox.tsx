@@ -88,6 +88,50 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
     };
   }, []);
 
+  // Close the viewer on the mobile back gesture / back button instead of
+  // letting the browser minimise the installed app.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  const pushedRef = useRef(false);
+  const pendingBackRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // A remount (StrictMode) must not push a second entry or undo the first.
+    if (pendingBackRef.current !== null) {
+      window.clearTimeout(pendingBackRef.current);
+      pendingBackRef.current = null;
+    }
+
+    let closedByHistory = false;
+    if (!pushedRef.current) {
+      window.history.pushState({ picpocketLightbox: true }, '');
+      pushedRef.current = true;
+    }
+
+    const onPopState = (): void => {
+      closedByHistory = true;
+      pushedRef.current = false;
+      onCloseRef.current();
+    };
+    window.addEventListener('popstate', onPopState);
+
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      if (closedByHistory || !pushedRef.current) return;
+      // Deferred so a StrictMode remount can cancel it before it navigates.
+      pendingBackRef.current = window.setTimeout(() => {
+        pendingBackRef.current = null;
+        if (pushedRef.current && window.history.state?.picpocketLightbox) {
+          pushedRef.current = false;
+          window.history.back();
+        }
+      }, 80);
+    };
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {

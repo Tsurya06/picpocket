@@ -45,6 +45,8 @@ export function useChannelVaults(options: {
   const [recheckToken, setRecheckToken] = useState(0);
 
   const runRef = useRef(0);
+  /** Channels whose key was already available, so a rescan does not re-trigger reloads. */
+  const readyRef = useRef(new Set<string>());
 
   const mark = useCallback((channelId: string, state: ChannelVaultState) => {
     setStates((current) => {
@@ -92,7 +94,10 @@ export function useChannelVaults(options: {
             );
             if (cancelled || runRef.current !== run) return;
             if (matched) {
-              opened += 1;
+              if (!readyRef.current.has(channelId)) {
+                readyRef.current.add(channelId);
+                opened += 1;
+              }
               mark(channelId, 'ready');
             } else {
               mark(channelId, 'locked');
@@ -116,7 +121,10 @@ export function useChannelVaults(options: {
             );
             if (cancelled || runRef.current !== run) return;
             if (matched) {
-              opened += 1;
+              if (!readyRef.current.has(channelId)) {
+                readyRef.current.add(channelId);
+                opened += 1;
+              }
               mark(channelId, 'ready');
             } else {
               mark(channelId, 'locked');
@@ -142,7 +150,8 @@ export function useChannelVaults(options: {
             // No posting rights: keep going with the primary key.
           }
           if (cancelled || runRef.current !== run) return;
-          opened += 1;
+          // The primary key already opened this channel, so nothing to reload.
+          readyRef.current.add(channelId);
           mark(channelId, 'ready');
         } catch (caught) {
           if (cancelled || runRef.current !== run) return;
