@@ -41,6 +41,8 @@ interface DragState {
   originX: number;
   originY: number;
   moved: boolean;
+  /** Started on a <video>: no capture, so the native controls keep working. */
+  fromVideo: boolean;
 }
 
 export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: LightboxProps) {
@@ -189,15 +191,23 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
   }, [item]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (!item || item.kind === 'video') return;
-    if (event.button !== 0) return;
+    if (!item) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
     // Never capture pointers that belong to controls overlaying the stage.
-    if (event.target instanceof Element && event.target.closest('button, video, a, input')) return;
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Some browsers reject capture for synthetic or already-released pointers.
+    if (event.target instanceof Element && event.target.closest('button, a, input')) return;
+
+    // Videos keep their own pointer stream so the native controls stay usable;
+    // a sideways drag still bubbles up and becomes a swipe.
+    const fromVideo =
+      event.target instanceof Element && event.target.closest('video') !== null;
+    if (!fromVideo) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Some browsers reject capture for synthetic or already-released pointers.
+      }
     }
+
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -205,6 +215,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
       originX: offset.x,
       originY: offset.y,
       moved: false,
+      fromVideo,
     };
   };
 
@@ -216,7 +227,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) drag.moved = true;
     if (scale > 1) {
       setOffset({ x: drag.originX + dx, y: drag.originY + dy });
-    } else {
+    } else if (!drag.fromVideo || Math.abs(dx) > 12) {
       setSwipeX(dx);
     }
   };
@@ -381,6 +392,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
             controls
             autoPlay
             playsInline
+            style={{ touchAction: 'pan-y' }}
             className="max-h-full max-w-full rounded-lg bg-black shadow-2xl"
           />
         ) : null}
