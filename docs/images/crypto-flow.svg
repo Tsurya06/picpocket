@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 380" width="100%" height="auto" style="border-radius: 14px; overflow: hidden; background: #0c0e14;">
+  <defs>
+    <linearGradient id="cfStepBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#161c28" />
+      <stop offset="100%" stop-color="#0f131c" />
+    </linearGradient>
+
+    <linearGradient id="cfGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
+    </linearGradient>
+
+    <marker id="cfArrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#38bdf8" />
+    </marker>
+  </defs>
+
+  <rect width="1000" height="380" fill="#0b0d13" />
+
+  <text x="40" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="18" fill="#f8fafc">
+    Zero-Knowledge Cryptographic Lifecycle
+  </text>
+  <text x="40" y="66" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#64748b">
+    All cryptographic operations execute strictly inside a Web Worker. Plaintext never touches disk or network.
+  </text>
+
+  <!-- Step 1: Key Derivation -->
+  <g transform="translate(40, 95)">
+    <rect width="280" height="240" rx="12" fill="url(#cfStepBg)" stroke="#273248" stroke-width="1.3" />
+    <rect x="0" y="0" width="280" height="6" fill="#38bdf8" rx="3" />
+    <text x="20" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="14" fill="#e2e8f0">1. Key Derivation</text>
+    <text x="20" y="52" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#38bdf8">PBKDF2-SHA256 · 600,000 Iterations</text>
+    
+    <g transform="translate(18, 70)">
+      <rect width="244" height="36" rx="6" fill="#111622" stroke="#1e293b" />
+      <text x="12" y="22" font-family="monospace" font-size="11" fill="#cbd5e1">Passphrase + 16B Salt</text>
+    </g>
+
+    <path d="M 140 112 L 140 130" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#cfArrow)" />
+
+    <g transform="translate(18, 138)">
+      <rect width="244" height="74" rx="6" fill="#141a29" stroke="#3b82f6" stroke-width="1.2" />
+      <text x="12" y="22" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="600" font-size="12" fill="#93c5fd">CryptoKey (AES-256-GCM)</text>
+      <text x="12" y="42" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">• extractable: false</text>
+      <text x="12" y="60" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">• Cannot be exported from Worker</text>
+    </g>
+  </g>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 330 215 L 360 215" stroke="#38bdf8" stroke-width="2" marker-end="url(#cfArrow)" />
+
+  <!-- Step 2: Media Preparation & Sealing -->
+  <g transform="translate(370, 95)">
+    <rect width="280" height="240" rx="12" fill="url(#cfStepBg)" stroke="#273248" stroke-width="1.3" />
+    <rect x="0" y="0" width="280" height="6" fill="#818cf8" rx="3" />
+    <text x="20" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="14" fill="#e2e8f0">2. Sealing &amp; Scrubbing</text>
+    <text x="20" y="52" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#818cf8">Zero-Metadata &amp; Fresh IV</text>
+
+    <g transform="translate(18, 70)">
+      <rect width="244" height="36" rx="6" fill="#111622" stroke="#1e293b" />
+      <text x="12" y="22" font-family="monospace" font-size="11" fill="#cbd5e1">Scrub EXIF / GPS tags</text>
+    </g>
+
+    <path d="M 140 112 L 140 130" stroke="#818cf8" stroke-width="1.5" marker-end="url(#cfArrow)" />
+
+    <g transform="translate(18, 138)">
+      <rect width="244" height="74" rx="6" fill="#15172b" stroke="#6366f1" stroke-width="1.2" />
+      <text x="12" y="22" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="600" font-size="12" fill="#c7d2fe">AES-GCM Encryption</text>
+      <text x="12" y="42" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">• 12-byte CSPRNG IV per chunk</text>
+      <text x="12" y="60" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">• 16-byte authentication tag</text>
+    </g>
+  </g>
+
+  <!-- Arrow 2 -> 3 -->
+  <path d="M 660 215 L 690 215" stroke="#818cf8" stroke-width="2" marker-end="url(#cfArrow)" />
+
+  <!-- Step 3: Sealed Output & Channel Storage -->
+  <g transform="translate(700, 95)">
+    <rect width="260" height="240" rx="12" fill="url(#cfStepBg)" stroke="#273248" stroke-width="1.3" />
+    <rect x="0" y="0" width="260" height="6" fill="#10b981" rx="3" />
+    <text x="20" y="32" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="14" fill="#e2e8f0">3. Sealed Payload</text>
+    <text x="20" y="52" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#34d399">Opaque Binary Envelope</text>
+
+    <g transform="translate(16, 70)">
+      <rect width="228" height="64" rx="6" fill="#111622" stroke="#1e293b" />
+      <text x="10" y="20" font-family="monospace" font-size="10.5" fill="#38bdf8">TGP1M:&lt;iv|ciphertext&gt;</text>
+      <text x="10" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10.5" fill="#94a3b8">Encrypted metadata &amp; file</text>
+      <text x="10" y="54" font-family="monospace" font-size="10.5" fill="#cbd5e1">filename: media_*.bin</text>
+    </g>
+
+    <g transform="translate(16, 148)">
+      <rect width="228" height="64" rx="6" fill="#111622" stroke="#1e293b" />
+      <text x="10" y="20" font-family="monospace" font-size="10.5" fill="#a78bfa">TGB1B:&lt;sealed_index&gt;</text>
+      <text x="10" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10.5" fill="#94a3b8">Packed 32MB bundle index</text>
+      <text x="10" y="54" font-family="monospace" font-size="10.5" fill="#cbd5e1">filename: bundle_*.bin</text>
+    </g>
+  </g>
+</svg>

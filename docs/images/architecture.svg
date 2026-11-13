@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 620" width="100%" height="auto" style="border-radius: 14px; overflow: hidden; background: #0c0e14;">
+  <defs>
+    <linearGradient id="panelBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#161b26" />
+      <stop offset="100%" stop-color="#0f131c" />
+    </linearGradient>
+
+    <linearGradient id="workerBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.9" />
+    </linearGradient>
+
+    <linearGradient id="telegramBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0c253d" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#091b2c" stop-opacity="0.9" />
+    </linearGradient>
+
+    <marker id="arrowCyan" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#38bdf8" />
+    </marker>
+
+    <marker id="arrowEmerald" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#10b981" />
+    </marker>
+
+    <marker id="arrowPurple" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="M 0 0 L 8 4 L 0 8 Z" fill="#a855f7" />
+    </marker>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="1100" height="620" fill="#0b0d13" />
+
+  <!-- Section 1: Client Environment -->
+  <rect x="30" y="30" width="670" height="560" rx="16" fill="url(#panelBg)" stroke="#232a3b" stroke-width="1.5" />
+  
+  <text x="60" y="68" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="18" fill="#f8fafc">
+    Client Sandbox (Browser / PWA)
+  </text>
+  <text x="60" y="88" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#64748b">
+    Strict CSP · No backend servers · Zero external telemetry · Offline Workbox shell
+  </text>
+
+  <!-- Sub-block 1: UI & Presentation -->
+  <rect x="55" y="110" width="280" height="180" rx="12" fill="#111622" stroke="#2a3347" stroke-width="1.2" />
+  <text x="75" y="136" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="600" font-size="14" fill="#93c5fd">UI &amp; App Shell</text>
+  <text x="75" y="160" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• React 18 + Tailwind CSS v4</text>
+  <text x="75" y="182" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• Google Photos Timeline &amp; Grid</text>
+  <text x="75" y="204" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• Swipe Lightbox + Zoom / Video</text>
+  <text x="75" y="226" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• WhatsApp Backup &amp; Share Target</text>
+  <text x="75" y="248" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• Channel Switcher &amp; Multi-Vault</text>
+
+  <!-- Sub-block 2: Local Cache & Storage -->
+  <rect x="365" y="110" width="310" height="180" rx="12" fill="#111622" stroke="#2a3347" stroke-width="1.2" />
+  <text x="385" y="136" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="600" font-size="14" fill="#a78bfa">Local Cache (Dexie IndexedDB)</text>
+  <text x="385" y="160" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• Encrypted Session Row (Ciphertext only)</text>
+  <text x="385" y="182" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• LRU Decrypted Thumbnails (160 MB cap)</text>
+  <text x="385" y="204" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• WhatsApp Local Sync &amp; Dedupe State</text>
+  <text x="385" y="226" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• Atomic resetLocalData() on Vault Reset</text>
+  <text x="385" y="248" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#cbd5e1">• Fast offline query indices</text>
+
+  <!-- Sub-block 3: Isolated Web Worker (Security Core) -->
+  <rect x="55" y="315" width="620" height="145" rx="12" fill="url(#workerBg)" stroke="#4f46e5" stroke-width="1.5" />
+  <g transform="translate(75, 340)">
+    <circle cx="10" cy="10" r="10" fill="#4f46e5" fill-opacity="0.3" stroke="#818cf8" stroke-width="1.5" />
+    <path d="M 7 10 L 10 7 L 13 10 M 10 8 L 10 13" stroke="#c7d2fe" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="30" y="15" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="15" fill="#e0e7ff">Isolated Web Worker (crypto.worker.ts)</text>
+    <text x="30" y="38" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#c7d2fe">• PBKDF2-SHA256 (600,000 rounds) → non-extractable AES-256-GCM CryptoKey</text>
+    <text x="30" y="58" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#c7d2fe">• Fresh 12-byte CSPRNG IV (crypto.getRandomValues) generated per encryption</text>
+    <text x="30" y="78" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#c7d2fe">• Client-side EXIF &amp; GPS scrubbing prior to encryption</text>
+    <text x="30" y="98" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#c7d2fe">• 32 MB Container Packing &amp; 4 KB-aligned partial range decryption</text>
+  </g>
+
+  <!-- Sub-block 4: Anti-Ban & MTProto Dispatcher -->
+  <rect x="55" y="480" width="620" height="90" rx="12" fill="#111622" stroke="#10b981" stroke-width="1.3" />
+  <g transform="translate(75, 502)">
+    <text x="0" y="14" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="14" fill="#34d399">Anti-Ban &amp; MTProto Client (antiBan.ts + mtprotoClient.ts)</text>
+    <text x="0" y="36" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">• Serialized write lanes with 6.0–12.0s randomized jitter</text>
+    <text x="0" y="54" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">• Album grouping (up to 10 photos/videos per call) · FloodWait catch + safety margin</text>
+  </g>
+
+  <!-- Connective Arrows Client -> Telegram -->
+  <path d="M 685 525 L 740 525" stroke="#10b981" stroke-width="2.5" stroke-dasharray="5 3" marker-end="url(#arrowEmerald)" />
+  <text x="690" y="515" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" fill="#34d399" font-weight="600">WSS UPLOAD</text>
+
+  <path d="M 740 400 L 685 400" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="5 3" marker-end="url(#arrowCyan)" />
+  <text x="686" y="390" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="10" fill="#38bdf8" font-weight="600">RANGE READ</text>
+
+  <!-- Section 2: Telegram Cloud Storage -->
+  <rect x="750" y="30" width="320" height="560" rx="16" fill="url(#telegramBg)" stroke="#0284c7" stroke-width="1.5" />
+
+  <text x="775" y="68" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="18" fill="#f8fafc">
+    Telegram Cloud
+  </text>
+  <text x="775" y="88" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#7dd3fc">
+    Your Private Channel Storage
+  </text>
+
+  <!-- Channel Item 1 -->
+  <g transform="translate(775, 120)">
+    <rect width="270" height="90" rx="10" fill="#082035" stroke="#0ea5e9" stroke-width="1.2" />
+    <text x="16" y="28" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="13" fill="#e0f2fe">Channel Header Pin</text>
+    <text x="16" y="48" font-family="monospace" font-size="11" fill="#38bdf8">TGP1H:&lt;salt|verifier&gt;</text>
+    <text x="16" y="70" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">Cross-device vault sync verifier</text>
+  </g>
+
+  <!-- Channel Item 2 -->
+  <g transform="translate(775, 230)">
+    <rect width="270" height="100" rx="10" fill="#082035" stroke="#0ea5e9" stroke-width="1.2" />
+    <text x="16" y="28" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="13" fill="#e0f2fe">Packed 32 MB Containers</text>
+    <text x="16" y="48" font-family="monospace" font-size="11" fill="#38bdf8">bundle_&lt;uuid&gt;.bin</text>
+    <text x="16" y="66" font-family="monospace" font-size="11" fill="#a78bfa">TGB1B:&lt;sealed_index&gt;</text>
+    <text x="16" y="86" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">Holds 50+ encrypted media chunks</text>
+  </g>
+
+  <!-- Channel Item 3 -->
+  <g transform="translate(775, 350)">
+    <rect width="270" height="95" rx="10" fill="#082035" stroke="#0ea5e9" stroke-width="1.2" />
+    <text x="16" y="28" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="13" fill="#e0f2fe">Original Media Documents</text>
+    <text x="16" y="48" font-family="monospace" font-size="11" fill="#38bdf8">media_&lt;uuid&gt;.bin</text>
+    <text x="16" y="66" font-family="monospace" font-size="11" fill="#34d399">TGP1M:&lt;iv|ciphertext&gt;</text>
+    <text x="16" y="84" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">Encrypted files &gt; 10 MB</text>
+  </g>
+
+  <!-- Channel Item 4 -->
+  <g transform="translate(775, 465)">
+    <rect width="270" height="95" rx="10" fill="#082035" stroke="#0ea5e9" stroke-width="1.2" />
+    <text x="16" y="28" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="13" fill="#e0f2fe">WhatsApp Sync Archives</text>
+    <text x="16" y="48" font-family="monospace" font-size="11" fill="#f59e0b">WAB1M:&lt;backup_manifest&gt;</text>
+    <text x="16" y="66" font-family="monospace" font-size="11" fill="#f59e0b">WAB1C:&lt;chunk_slices&gt;</text>
+    <text x="16" y="84" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11" fill="#94a3b8">Multi-part chunked database</text>
+  </g>
+</svg>

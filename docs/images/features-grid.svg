@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 480" width="100%" height="auto" style="border-radius: 14px; overflow: hidden; background: #0c0e14;">
+  <defs>
+    <linearGradient id="featCardBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#141824" />
+      <stop offset="100%" stop-color="#0e111a" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1000" height="480" fill="#0b0d13" />
+
+  <text x="40" y="44" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="18" fill="#f8fafc">
+    Engineered for Daily Private Photo Management
+  </text>
+  <text x="40" y="66" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#64748b">
+    Full Google Photos UX combined with zero-trust storage guarantees.
+  </text>
+
+  <!-- Card 1: Timeline & Lightbox -->
+  <g transform="translate(40, 95)">
+    <rect width="445" height="165" rx="12" fill="url(#featCardBg)" stroke="#222b3d" stroke-width="1.3" />
+    <circle cx="38" cy="38" r="18" fill="#1e293b" />
+    <path d="M 30 38 L 36 44 L 46 32" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="70" y="36" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="15" fill="#f1f5f9">Timeline &amp; Full Lightbox</text>
+    <text x="70" y="54" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" fill="#38bdf8">Date Groups · Swipe · Zoom · Video Playback</text>
+    <text x="24" y="90" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      Smooth, virtualized masonry grid with day/month dividers.
+    </text>
+    <text x="24" y="112" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      Swipeable lightbox with native multi-touch zoom up to 4×,
+    </text>
+    <text x="24" y="134" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      neighbor prefetching, and synchronized message deletion.
+    </text>
+  </g>
+
+  <!-- Card 2: 32MB Container Packing -->
+  <g transform="translate(515, 95)">
+    <rect width="445" height="165" rx="12" fill="url(#featCardBg)" stroke="#222b3d" stroke-width="1.3" />
+    <circle cx="38" cy="38" r="18" fill="#1e293b" />
+    <rect x="29" y="29" width="18" height="18" rx="4" fill="none" stroke="#818cf8" stroke-width="2"/>
+    <text x="70" y="36" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="15" fill="#f1f5f9">Smart 32 MB Container Bundling</text>
+    <text x="70" y="54" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" fill="#818cf8">4 KB Boundary Alignment · Range Requests</text>
+    <text x="24" y="90" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      Small encrypted images are packed into 32 MB bundle files
+    </text>
+    <text x="24" y="112" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      with a sealed index. The viewer fetches only the required byte
+    </text>
+    <text x="24" y="134" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      range on demand, saving bandwidth and Telegram channel space.
+    </text>
+  </g>
+
+  <!-- Card 3: Anti-Ban Queue -->
+  <g transform="translate(40, 280)">
+    <rect width="445" height="165" rx="12" fill="url(#featCardBg)" stroke="#222b3d" stroke-width="1.3" />
+    <circle cx="38" cy="38" r="18" fill="#1e293b" />
+    <path d="M 38 28 L 47 44 L 29 44 Z" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="38" cy="40" r="1" fill="#10b981"/>
+    <text x="70" y="36" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="15" fill="#f1f5f9">Anti-Ban Pacing &amp; Albums</text>
+    <text x="70" y="54" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" fill="#34d399">FloodWait Margin · 6–12s Jitter · Media Groups</text>
+    <text x="24" y="90" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      Batches photos into albums of up to 10 items per MTProto call.
+    </text>
+    <text x="24" y="112" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      Injects random delays between write requests, catching and
+    </text>
+    <text x="24" y="134" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      sleeping through FLOOD_WAIT exceptions with a safety buffer.
+    </text>
+  </g>
+
+  <!-- Card 4: WhatsApp & Share Target -->
+  <g transform="translate(515, 280)">
+    <rect width="445" height="165" rx="12" fill="url(#featCardBg)" stroke="#222b3d" stroke-width="1.3" />
+    <circle cx="38" cy="38" r="18" fill="#1e293b" />
+    <path d="M 32 44 L 35 32 L 44 35 L 41 44 Z" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="round"/>
+    <text x="70" y="36" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="700" font-size="15" fill="#f1f5f9">WhatsApp Sync &amp; Share Target</text>
+    <text x="70" y="54" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="11.5" fill="#fbbf24">Database Chunking · Deduplication · PWA Share</text>
+    <text x="24" y="90" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      Directly backup encrypted msgstore.db.crypt14/15 databases
+    </text>
+    <text x="24" y="112" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      with slice chunking and deduplication. Receive shared photos
+    </text>
+    <text x="24" y="134" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12" fill="#94a3b8">
+      instantly from iOS &amp; Android system share sheets.
+    </text>
+  </g>
+</svg>
