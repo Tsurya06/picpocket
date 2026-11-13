@@ -81,6 +81,9 @@ export async function readSharedPayload(id: string): Promise<SharedPayload | nul
 
     const files: File[] = [];
     for (const entry of meta.files) {
+      // Only accept keys that belong to this share stash. A tampered cache
+      // entry must not be able to pull an arbitrary same-origin resource.
+      if (!entry.key.startsWith(base)) continue;
       const response = await cache.match(entry.key);
       if (!response) continue;
       const blob = await response.blob();
@@ -105,7 +108,9 @@ export async function clearSharedPayload(id: string, meta?: SharedMeta): Promise
   const base = new URL(`${SHARE_PREFIX}${safeId(id)}/`, window.location.origin).toString();
   await cache.delete(`${base}meta`);
   if (meta) {
-    for (const entry of meta.files) await cache.delete(entry.key);
+    for (const entry of meta.files) {
+      if (entry.key.startsWith(base)) await cache.delete(entry.key);
+    }
   }
 }
 
