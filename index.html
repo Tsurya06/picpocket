@@ -3,21 +3,209 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <!-- Primary Meta Tags & SEO Optimization -->
+    <title>PicPocket — Free Unlimited Encrypted Photo Vault &amp; Google Photos Alternative</title>
+    <meta
+      name="title"
+      content="PicPocket — Free Unlimited Encrypted Photo Vault &amp; Google Photos Alternative"
+    />
+    <meta
+      name="description"
+      content="Turn your Telegram channels into an unlimited, zero-knowledge encrypted photo cloud. Free Google Photos alternative with client-side AES-256 encryption, timeline gallery, WhatsApp backup, and PWA mobile app."
+    />
+    <meta
+      name="keywords"
+      content="google photos alternative, free unlimited photo storage, telegram cloud storage, encrypted photo vault, zero knowledge photo gallery, private photo backup, telegram drive, aes-256 photo encryption, whatsapp backup telegram, self-hosted photo storage, pwa photo gallery, mtproto photo viewer, client side encryption photos, private cloud drive, free cloud photo storage, no subscription photo backup"
+    />
+    <meta name="author" content="PicPocket" />
+    <link rel="canonical" href="https://picpocketapp.pages.dev/" />
+
+    <!-- Search Engine Crawlers & Indexing Directives -->
+    <meta
+      name="robots"
+      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1"
+    />
+    <meta
+      name="googlebot"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+    <meta
+      name="bingbot"
+      content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
+    />
+
+    <!-- Mobile App & Theme Details -->
+    <meta name="theme-color" content="#0f1115" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PicPocket" />
-    <meta name="theme-color" content="#0f1115" />
+
+    <!-- Open Graph / Facebook / WhatsApp / Telegram / Discord -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://picpocketapp.pages.dev/" />
+    <meta property="og:site_name" content="PicPocket" />
     <meta
-      name="description"
-      content="A private, client-side Google Photos experience for your own Telegram channels."
+      property="og:title"
+      content="PicPocket — Free Unlimited Encrypted Photo Vault &amp; Google Photos Alternative"
     />
-    <title>PicPocket</title>
+    <meta
+      property="og:description"
+      content="Unlimited, zero-knowledge encrypted photo cloud vault powered by your own Telegram channels. Free, private, client-side AES-256-GCM encryption with Google Photos timeline UX."
+    />
+    <meta property="og:image" content="https://picpocketapp.pages.dev/og-image.png" />
+    <meta property="og:image:secure_url" content="https://picpocketapp.pages.dev/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="PicPocket - Zero-Knowledge Encrypted Photo Vault Backed by Telegram"
+    />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://picpocketapp.pages.dev/" />
+    <meta
+      name="twitter:title"
+      content="PicPocket — Free Unlimited Encrypted Photo Vault &amp; Google Photos Alternative"
+    />
+    <meta
+      name="twitter:description"
+      content="Free, unlimited photo cloud vault powered by Telegram channels. Client-side AES-256-GCM encryption, date timeline, video streaming, and WhatsApp backup."
+    />
+    <meta name="twitter:image" content="https://picpocketapp.pages.dev/og-image.png" />
+    <meta
+      name="twitter:image:alt"
+      content="PicPocket - Zero-Knowledge Encrypted Photo Vault Preview"
+    />
+
+    <!-- Favicons & Manifest -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+
+    <!-- Structured Data (JSON-LD) for Google Rich Snippets & Search Visibility -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "@id": "https://picpocketapp.pages.dev/#webapp",
+            "name": "PicPocket",
+            "url": "https://picpocketapp.pages.dev/",
+            "applicationCategory": "MultimediaApplication, PhotographyApplication, SecurityApplication",
+            "operatingSystem": "All (Web, Android, iOS, Windows, macOS, Linux)",
+            "image": "https://picpocketapp.pages.dev/og-image.png",
+            "description": "A private, client-side Google Photos alternative that turns your own Telegram channels into an encrypted cloud photo vault with zero subscription fees.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "Zero-knowledge AES-256-GCM client-side encryption",
+              "Free unlimited photo storage using your private Telegram channels",
+              "Google Photos-style virtualized masonry timeline with date grouping",
+              "Swipeable lightbox with pinch-to-zoom up to 4x and video streaming",
+              "Telegram anti-ban pacing engine with album batching and FloodWait safety buffer",
+              "32 MB container packing with 4 KB partial range on-demand streaming",
+              "Client-side EXIF and GPS geolocation metadata scrubbing",
+              "Local WhatsApp database (msgstore.db.crypt14/15) backup and deduplication",
+              "Progressive Web App (PWA) with native mobile Web Share Target integration"
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://picpocketapp.pages.dev/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What is PicPocket?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "PicPocket is a free, private, client-side photo gallery and cloud vault. It uses your personal Telegram channels as encrypted cloud storage, giving you a smooth Google Photos experience without subscription fees or data harvesting."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How does PicPocket provide free unlimited photo storage?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Telegram provides unlimited file storage inside private channels. PicPocket connects directly to Telegram using MTProto over secure WebSockets, encrypting your files on your device before storing them in your channel."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can Telegram, Google, or anyone else see my photos?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. Every photo and video is encrypted locally inside a dedicated Web Worker using AES-256-GCM and a key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). The key is non-extractable and never leaves your browser. Telegram only sees scrambled .bin binary files."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is my Telegram account safe from spam bans when using PicPocket?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Unlike simple upload scripts, PicPocket is built with an anti-ban pacing engine. It batches photos into albums of up to 10 items, spaces uploads with randomized 6 to 12 second delays, and automatically catches and pauses during FloodWait rate-limit events."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I install PicPocket as a mobile app on Android and iPhone?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. PicPocket is a Progressive Web App (PWA). You can install it directly to your home screen from Safari on iOS or Chrome/Brave on Android. On mobile, it also integrates into your system's native Share menu."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <!-- Theme Initialization Script -->
     <script src="/theme-init.js"></script>
   </head>
   <body>
+    <!-- Semantic Static Content for Web Crawlers & No-JS Search Engine Indexing -->
+    <noscript>
+      <header style="padding: 24px; max-width: 800px; margin: 0 auto; font-family: sans-serif;">
+        <h1>PicPocket — Free Unlimited Encrypted Photo Vault &amp; Google Photos Alternative</h1>
+        <p>
+          <strong>PicPocket</strong> is an open-source, client-side photo gallery that transforms
+          your private Telegram channels into an encrypted cloud vault. Experience the familiar
+          timeline, search, zoom, and video playback of Google Photos without monthly storage
+          fees or privacy compromises.
+        </p>
+
+        <h2>Key Features</h2>
+        <ul>
+          <li><strong>Zero-Knowledge Encryption:</strong> AES-256-GCM encryption inside a Web Worker. Plaintext never leaves your device.</li>
+          <li><strong>Free Unlimited Cloud Storage:</strong> Backed by your private Telegram channel with no storage caps.</li>
+          <li><strong>Google Photos Experience:</strong> Masonry timeline grouped by date, swipeable lightbox, and multi-touch zoom up to 4×.</li>
+          <li><strong>Anti-Ban Protection:</strong> Batches uploads into media albums and enforces randomized delays (6–12s) to protect your Telegram account.</li>
+          <li><strong>Smart 32 MB Packing &amp; 4 KB Streaming:</strong> Small photos are bundled to keep your channel clean; only visible byte ranges are streamed.</li>
+          <li><strong>WhatsApp Backup Sync:</strong> Backup and restore local WhatsApp chat databases (msgstore.db.crypt14/15) and media folders.</li>
+          <li><strong>Installable PWA:</strong> Works on Android, iOS, Windows, and Mac with native OS Share Target support.</li>
+        </ul>
+
+        <h2>Frequently Asked Questions</h2>
+        <dl>
+          <dt><strong>Is PicPocket really free?</strong></dt>
+          <dd>Yes. PicPocket is 100% free and open source. It uses your own Telegram account storage, eliminating cloud subscription costs.</dd>
+          <dt><strong>Are my photos private?</strong></dt>
+          <dd>Yes. Everything is encrypted on your machine using your passphrase before uploading. Not even Telegram can view your files.</dd>
+        </dl>
+      </header>
+    </noscript>
+
+    <!-- Dynamic Application Root -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

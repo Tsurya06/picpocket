@@ -1,7 +1,7 @@
 {
-  "name": "PicPocket — Telegram Photo Gallery",
+  "name": "PicPocket — Free Encrypted Photo Vault & Gallery",
   "short_name": "PicPocket",
-  "description": "A private, client-side Google Photos experience for your own Telegram channels. End-to-end encrypted vault and WhatsApp backup included.",
+  "description": "Free, unlimited, private Google Photos alternative backed by your own Telegram channels. Client-side AES-256-GCM encrypted vault with WhatsApp backup sync.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -18,6 +18,15 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "og-image.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "PicPocket Desktop & Web Gallery"
     }
   ],
   "share_target": {

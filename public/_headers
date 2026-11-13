@@ -1,12 +1,21 @@
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
-  Referrer-Policy: no-referrer
+  Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.telegram.org wss://web.telegram.org wss://*.web.telegram.org; worker-src 'self'; child-src 'self' blob:; frame-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://picpocketapp.pages.dev; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.telegram.org wss://web.telegram.org wss://*.web.telegram.org; worker-src 'self'; child-src 'self' blob:; frame-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
 
 /sw.js
   Cache-Control: public, max-age=0, must-revalidate
 
 /manifest.json
   Cache-Control: public, max-age=3600
+
+/robots.txt
+  Cache-Control: public, max-age=86400
+
+/sitemap.xml
+  Cache-Control: public, max-age=86400
+
+/og-image.png
+  Cache-Control: public, max-age=604800, immutable

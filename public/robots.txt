@@ -1,0 +1,6 @@
+# Robots.txt for PicPocket (https://picpocketapp.pages.dev)
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://picpocketapp.pages.dev/sitemap.xml

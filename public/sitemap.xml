@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://picpocketapp.pages.dev/</loc>
+    <lastmod>2026-11-13</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://picpocketapp.pages.dev/og-image.png</image:loc>
+      <image:title>PicPocket - Free Unlimited Encrypted Photo Vault Backed by Telegram</image:title>
+      <image:caption>Zero-knowledge private Google Photos alternative powered by Telegram MTProto storage.</image:caption>
+    </image:image>
+  </url>
+</urlset>
