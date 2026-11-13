@@ -48,6 +48,13 @@ export function usePullToRefresh(
       const dx = touch.clientX - start.x;
       const dy = touch.clientY - start.y;
 
+      // Stop the browser's own pull-to-refresh / overscroll from committing
+      // before our gesture has decided what to do. Only relevant at the top,
+      // where native refresh can fire.
+      if (dy > 0 && window.scrollY <= 8) {
+        event.preventDefault();
+      }
+
       if (!pullingRef.current) {
         if (Math.abs(dy) < START_THRESHOLD) return;
         // A horizontal gesture belongs to the lightbox/carousel, not to us.

@@ -51,12 +51,16 @@ body,
   height: 100%;
 }
 
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
 body {
   background-color: var(--app-bg);
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  overscroll-behavior-y: none;
 }
 
 * {
