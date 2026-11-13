@@ -18,6 +18,7 @@ import { usePhotoTimeline } from './hooks/usePhotoTimeline';
 import { useUploader } from './hooks/useUploader';
 import { useChannelVaults } from './hooks/useChannelVaults';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
+import { clearFullMediaCache } from './hooks/useFullMedia';
 import { describeError, telegramService } from './services/telegram/mtprotoClient';
 import { filterMedia, groupTimeline } from './lib/timeline';
 import { AuthScreen } from './components/AuthScreen';
@@ -304,6 +305,7 @@ export default function App() {
     setSettingsOpen(false);
     setSelectorOpen(false);
     setLightboxId(null);
+    clearFullMediaCache();
     void auth.lock();
   }, [auth]);
 
@@ -311,6 +313,7 @@ export default function App() {
     setSettingsOpen(false);
     setSelectorOpen(false);
     setLightboxId(null);
+    clearFullMediaCache();
     void auth.reset();
   }, [auth]);
 

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import type { MediaItem } from '../types/media';
 import { formatBytes, formatDuration, formatFullDate } from '../lib/format';
-import { useFullMedia } from '../hooks/useFullMedia';
+import { prefetchFullMedia, useFullMedia } from '../hooks/useFullMedia';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { Spinner } from './ui/Spinner';
 
@@ -48,6 +48,14 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
   const media = useFullMedia(item, item !== null);
   const placeholder = useThumbnail(item, item !== null && media.loading);
 
+  // Keep the previous frame on screen while the next original downloads, so
+  // swiping never flashes an empty black stage.
+  const lastUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (media.url) lastUrlRef.current = media.url;
+  }, [media.url]);
+  const previousUrl = !media.url && media.loading ? lastUrlRef.current : null;
+
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [swipeX, setSwipeX] = useState(0);
@@ -61,6 +69,13 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
 
   const hasPrev = index > 0;
   const hasNext = index < items.length - 1;
+
+  // Warm the neighbours so the next swipe or arrow press is instant.
+  useEffect(() => {
+    prefetchFullMedia(items[index + 1]);
+    prefetchFullMedia(items[index - 1]);
+    prefetchFullMedia(items[index + 2]);
+  }, [index, items]);
 
   const goPrev = useCallback(() => {
     if (index > 0) onIndexChange(index - 1);
@@ -305,7 +320,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
           setOffset({ x: 0, y: 0 });
         }}
       >
-        {media.loading ? (
+        {media.loading && !previousUrl ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             {placeholder.url ? (
               <img
@@ -322,6 +337,22 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
                 {media.progress > 0 ? ` ${Math.round(media.progress * 100)}%` : ''}
               </p>
             </div>
+          </div>
+        ) : null}
+
+        {previousUrl && item.kind === 'photo' ? (
+          <img
+            src={previousUrl}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full select-none object-contain opacity-35 transition-opacity duration-200"
+          />
+        ) : null}
+
+        {previousUrl && item.kind === 'photo' ? (
+          <div className="pointer-events-none absolute bottom-28 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-[11px] text-white/70 backdrop-blur">
+            <Spinner size={12} />
+            Loading{media.progress > 0 ? ` ${Math.round(media.progress * 100)}%` : '…'}
           </div>
         ) : null}
 
@@ -386,10 +417,11 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
             style={{ transform: `translateX(${zoomed ? 0 : swipeX}px)` }}
           >
             <img
+              key={item.id}
               src={media.url}
               alt={item.fileName}
               draggable={false}
-              className="max-h-full max-w-full select-none object-contain shadow-2xl"
+              className="max-h-full max-w-full select-none object-contain shadow-2xl transition-opacity duration-200"
               style={{
                 transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 transition: dragRef.current ? 'none' : 'transform 180ms ease-out',
@@ -399,24 +431,24 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
           </div>
         ) : null}
 
-        {hasPrev ? (
+        {hasPrev && !zoomed ? (
           <button
             type="button"
             onClick={goPrev}
             aria-label="Previous"
-            className="absolute left-2 top-1/2 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition-colors hover:bg-white/20 sm:flex"
+            className="absolute left-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-white/20 sm:left-2 sm:h-11 sm:w-11"
           >
-            <ChevronLeft size={22} />
+            <ChevronLeft size={20} />
           </button>
         ) : null}
-        {hasNext ? (
+        {hasNext && !zoomed ? (
           <button
             type="button"
             onClick={goNext}
             aria-label="Next"
-            className="absolute right-2 top-1/2 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition-colors hover:bg-white/20 sm:flex"
+            className="absolute right-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur transition-colors hover:bg-white/20 sm:right-2 sm:h-11 sm:w-11"
           >
-            <ChevronRight size={22} />
+            <ChevronRight size={20} />
           </button>
         ) : null}
       </div>
