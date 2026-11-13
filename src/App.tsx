@@ -649,6 +649,7 @@ export default function App() {
         }}
         onLock={handleLock}
         onReset={handleReset}
+        onReload={() => window.location.reload()}
       />
 
       {lightboxItem ? (

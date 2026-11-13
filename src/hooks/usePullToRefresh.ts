@@ -18,6 +18,11 @@ export function usePullToRefresh(
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const pullingRef = useRef(false);
   const distanceRef = useRef(0);
+  // Held in a ref so a re-render mid-gesture cannot detach the listeners.
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
 
   useEffect(() => {
     const element = target.current;
@@ -78,7 +83,7 @@ export function usePullToRefresh(
     const onEnd = (): void => {
       const shouldRefresh = distanceRef.current >= TRIGGER_DISTANCE;
       reset();
-      if (shouldRefresh) onRefresh();
+      if (shouldRefresh) onRefreshRef.current();
     };
 
     element.addEventListener('touchstart', onStart, { passive: true });
@@ -92,7 +97,7 @@ export function usePullToRefresh(
       element.removeEventListener('touchend', onEnd);
       element.removeEventListener('touchcancel', reset);
     };
-  }, [enabled, onRefresh, target]);
+  }, [enabled, target]);
 
   return { distance, pulled: distance >= TRIGGER_DISTANCE };
 }

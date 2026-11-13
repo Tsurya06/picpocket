@@ -6,6 +6,7 @@ import {
   HardDrive,
   LogOut,
   Moon,
+  RefreshCw,
   ShieldCheck,
   Trash2,
   Users,
@@ -30,6 +31,7 @@ export interface SettingsModalProps {
   readonly onManageChannels: () => void;
   readonly onLock: () => void;
   readonly onReset: () => void;
+  readonly onReload: () => void;
 }
 
 export function SettingsModal({
@@ -45,6 +47,7 @@ export function SettingsModal({
   onManageChannels,
   onLock,
   onReset,
+  onReload,
 }: SettingsModalProps) {
   const [stats, setStats] = useState<{ entries: number; bytes: number } | null>(null);
   const [clearing, setClearing] = useState(false);
@@ -242,6 +245,19 @@ export function SettingsModal({
         {/* ── Session actions ─────────────────────────────────────── */}
         <section className="space-y-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Session</p>
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={onReload}
+            leadingIcon={<RefreshCw size={16} />}
+          >
+            Reload app
+          </Button>
+          <p className="text-[11px] leading-relaxed text-muted">
+            Pull down on the photo grid to refresh the timeline; use this to restart PicPocket
+            completely (for example after an update). Your vault stays locked until you enter your
+            passphrase again.
+          </p>
           <Button
             variant="secondary"
             className="w-full"
