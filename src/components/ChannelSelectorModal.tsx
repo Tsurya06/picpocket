@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   FolderLock,
@@ -62,7 +62,34 @@ export function ChannelSelectorModal({
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+  // Staged selection: toggles only change this draft until Done is pressed.
+  const [draft, setDraft] = useState<Set<string>>(() => new Set(selectedIds));
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) setDraft(new Set(selectedIds));
+    wasOpen.current = open;
+  }, [open, selectedIds]);
+
+  const toggleDraft = (id: string): void => {
+    setDraft((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const commit = (): void => {
+    for (const id of selectedIds) {
+      if (!draft.has(id)) onToggle(id);
+    }
+    for (const id of draft) {
+      if (!selectedIds.includes(id)) onToggle(id);
+    }
+    onClose();
+  };
+
+  const selected = draft;
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return channels;
@@ -85,6 +112,8 @@ export function ChannelSelectorModal({
       setCreateError('Telegram refused to create the channel. Try again in a moment.');
       return;
     }
+    // The new channel is selected by the hook; mirror it in the draft.
+    setDraft((current) => new Set(current).add(created.id));
     setShowCreate(false);
     setTitle('My PicPocket');
   };
@@ -109,15 +138,15 @@ export function ChannelSelectorModal({
       footer={
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted">
-            {selectedIds.length === 0
+            {draft.size === 0
               ? 'Nothing selected yet'
-              : `${selectedIds.length} chat${selectedIds.length === 1 ? '' : 's'} selected`}
+              : `${draft.size} chat${draft.size === 1 ? '' : 's'} selected`}
           </p>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
-            <Button size="sm" onClick={onClose} disabled={selectedIds.length === 0}>
+            <Button size="sm" onClick={commit} disabled={draft.size === 0}>
               Done
             </Button>
           </div>
@@ -178,7 +207,7 @@ export function ChannelSelectorModal({
                 type="button"
                 role="switch"
                 aria-checked={isSelected}
-                onClick={() => onToggle(channel.id)}
+                onClick={() => toggleDraft(channel.id)}
                 className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition-colors ${
                   isSelected
                     ? 'border-accent/40 bg-accent-soft/50'

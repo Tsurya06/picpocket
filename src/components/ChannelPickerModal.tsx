@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import type { ChannelSummary } from '../types/media';
 import { useChannelAvatar } from '../hooks/useChannelAvatar';
@@ -47,6 +47,14 @@ export function ChannelPickerModal({
   onRefresh,
 }: ChannelPickerModalProps) {
   const [search, setSearch] = useState('');
+  // Staged choice: nothing changes until Done is pressed.
+  const [draft, setDraft] = useState<string | null>(selectedId);
+  const wasOpen = useRef(false);
+
+  useEffect(() => {
+    if (open && !wasOpen.current) setDraft(selectedId);
+    wasOpen.current = open;
+  }, [open, selectedId]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -76,9 +84,21 @@ export function ChannelPickerModal({
       footer={
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted">One channel only</p>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={draft === null}
+              onClick={() => {
+                if (draft !== null) onSelect(draft);
+                onClose();
+              }}
+            >
+              Done
+            </Button>
+          </div>
         </div>
       }
     >
@@ -115,16 +135,13 @@ export function ChannelPickerModal({
           ) : null}
 
           {filtered.map((channel) => {
-            const isSelected = channel.id === selectedId;
+            const isSelected = channel.id === draft;
             return (
               <button
                 key={channel.id}
                 type="button"
                 aria-pressed={isSelected}
-                onClick={() => {
-                  onSelect(channel.id);
-                  onClose();
-                }}
+                onClick={() => setDraft(channel.id)}
                 className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition-colors ${
                   isSelected
                     ? 'border-accent/40 bg-accent-soft/50'
