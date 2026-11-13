@@ -193,7 +193,11 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
     if (event.button !== 0) return;
     // Never capture pointers that belong to controls overlaying the stage.
     if (event.target instanceof Element && event.target.closest('button, video, a, input')) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Some browsers reject capture for synthetic or already-released pointers.
+    }
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -221,14 +225,18 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag) return;
-    if (event.currentTarget.hasPointerCapture(drag.pointerId)) {
-      event.currentTarget.releasePointerCapture(drag.pointerId);
+    try {
+      if (event.currentTarget.hasPointerCapture(drag.pointerId)) {
+        event.currentTarget.releasePointerCapture(drag.pointerId);
+      }
+    } catch {
+      // Ignore: the pointer may already be gone.
     }
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     setSwipeX(0);
     if (scale > 1) return;
-    if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy) * 1.4) {
+    if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy) * 1.2) {
       if (dx < 0) goNext();
       else goPrev();
     }
@@ -309,7 +317,10 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
 
       <div
         ref={stageRef}
-        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden px-2 pb-24 pt-16 sm:px-16"
+        // `touch-action: pan-y` keeps horizontal drags for the swipe gesture
+        // instead of letting the browser scroll or run its own back gesture.
+        style={{ touchAction: 'pan-y', overscrollBehaviorX: 'contain' }}
+        className="relative flex min-h-0 flex-1 select-none items-center justify-center overflow-hidden px-2 pb-24 pt-16 sm:px-16"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -414,7 +425,11 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
         {media.url && item.kind === 'photo' ? (
           <div
             className="flex h-full w-full items-center justify-center"
-            style={{ transform: `translateX(${zoomed ? 0 : swipeX}px)` }}
+            style={{
+              transform: `translateX(${zoomed ? 0 : swipeX}px)`,
+              touchAction: 'pan-y',
+              transition: dragRef.current ? 'none' : 'transform 180ms ease-out',
+            }}
           >
             <img
               key={item.id}
@@ -426,6 +441,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
                 transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
                 transition: dragRef.current ? 'none' : 'transform 180ms ease-out',
                 cursor: zoomed ? 'grab' : 'zoom-in',
+                touchAction: 'pan-y',
               }}
             />
           </div>
