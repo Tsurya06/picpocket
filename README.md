@@ -1,246 +1,223 @@
 # PicPocket
 
 <p align="center">
-  <img src="docs/images/banner.svg" alt="PicPocket Hero Banner" width="100%" />
+  <img src="docs/images/banner.svg" alt="PicPocket Banner" width="100%" />
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
-  <img src="https://img.shields.io/badge/Security-Zero--Knowledge-brightgreen.svg" alt="Security: Zero-Knowledge" />
-  <img src="https://img.shields.io/badge/Encryption-AES--256--GCM-blue.svg" alt="Encryption: AES-256-GCM" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <img src="https://img.shields.io/badge/Encryption-AES--256--GCM-green.svg" alt="Encryption: AES-256-GCM" />
   <img src="https://img.shields.io/badge/Protocol-MTProto%20v2.0-blueviolet.svg" alt="Protocol: MTProto" />
-  <img src="https://img.shields.io/badge/PWA-Installable-orange.svg" alt="PWA: Ready" />
+  <img src="https://img.shields.io/badge/Architecture-100%25%20Client--Side-orange.svg" alt="Client-Side" />
+  <img src="https://img.shields.io/badge/PWA-Installable-purple.svg" alt="PWA" />
 </p>
 
 ---
 
-A private, client-side Google Photos–style gallery that turns your own Telegram channels into an encrypted personal cloud vault. **No backend servers, no analytics, no plaintext uploads**: the browser talks directly to Telegram via MTProto WebSockets, and every file is sealed locally with non-extractable keys inside a dedicated Web Worker before transmission.
+PicPocket is a private, client-side photo gallery that turns your own Telegram channels into an encrypted cloud vault. It gives you the clean interface of Google Photos—timeline view, zoom, video streaming, search, and album management—without storage subscription fees or privacy compromises.
+
+Everything runs directly in your browser. Media is encrypted locally on your device with AES-256-GCM before upload, so neither Telegram nor any third party can ever see your photos.
 
 ---
 
-## 💡 In Plain English: What is PicPocket?
+## The Core Idea
 
-Think of **PicPocket** as a **free, unlimited, private Google Photos replacement**. 
+Most cloud photo services give you 15 GB for free, then lock you into recurring monthly subscriptions. Meanwhile, Telegram provides unlimited file storage in private channels, but uploading personal pictures manually has big drawbacks:
+- Your raw, unencrypted photos sit on Telegram's servers.
+- Hidden GPS coordinates and camera serial numbers stay attached.
+- Uploading hundreds of pictures one by one clutters your chats and risks triggering Telegram's automated spam filters.
 
-Instead of paying Google or Apple a monthly fee when your cloud storage fills up, PicPocket uses your own private Telegram channel as an encrypted storage drive. 
-
-You get the smooth, visual gallery experience of Google Photos (dates, albums, zoom, video playback, swipe gestures), but **no one—not even Telegram, Google, or the app creators—can ever see your photos, videos, or passwords.**
-
----
-
-## 🌟 Why Choose PicPocket?
-
-- **💰 Free & Unlimited for Life** — Google Photos gives you 15 GB before charging. Telegram channels offer free unlimited storage for files. PicPocket unlocks this for your photo library.
-- **🛡️ True Privacy (Zero-Knowledge)** — Your files are locked with military-grade encryption (AES-256-GCM) on your device *before* they leave. Telegram only stores scrambled, unreadable binary files (`.bin`).
-- **📱 Real App Feel on Phone & PC** — Install it with one click as a Progressive Web App (PWA). It works offline, supports dark mode, and even appears in your phone's native **"Share to..."** menu.
-- **⚡ Super Fast Loading** — You don't have to wait for large files to download. PicPocket intelligently bundles small photos together and streams only the exact pieces needed to show your screen.
-- **💬 Built-in WhatsApp Backup** — Directly back up and restore your local WhatsApp chat database and media without relying on Google Drive.
-
----
-
-## 🤝 Why You Can Trust It
-
-1. **🚫 Zero Backend Servers:** There is literally no middleman server. The code runs 100% inside your own browser tab. You can open your browser's Network Inspector (F12) and see that requests **only go to official Telegram servers**.
-2. **🔑 Non-Extractable Keys:** Your vault password is transformed into a cryptographic key inside an isolated browser Web Worker. The browser security system enforces that this key **can never be exported or read by external scripts**.
-3. **📍 Automatic Location & EXIF Cleaning:** Phones embed hidden GPS coordinates in photos. PicPocket automatically strips location, camera serial numbers, and metadata before encryption so your physical location is never leaked.
-4. **📦 Your Data, Your Account:** There is no third-party database. If you delete PicPocket or clear your browser, simply enter your password in any new browser, and your photos re-appear from your private channel.
-5. **🛡️ 100% Open Source & Zero Telemetry:** No Google Analytics, no tracking pixels, no hidden ads. Every single line of code can be audited right here.
-
----
-
-## ⚔️ How PicPocket is Different From Other GitHub Projects
-
-Most other "Telegram-as-Cloud-Storage" projects on GitHub are either simple Telegram bots or Python command-line tools. Here is how PicPocket compares:
-
-| Feature | Typical GitHub Telegram Drives | 🚀 PicPocket |
-| :--- | :--- | :--- |
-| **User Interface** | Clunky chat bots or terminal CLI | **Google Photos–style visual gallery** with timeline & pinch-to-zoom |
-| **Privacy & Encryption** | ❌ Plaintext (Telegram can see all photos) | **✅ 100% Client-side AES-256-GCM** (Telegram only sees scrambled `.bin`) |
-| **Architecture** | Requires hosting a Python / Node server | **Zero backend.** 100% static client app running in your browser |
-| **Bot Token vs Personal** | Uses bot tokens (limited to 20–50 MB files) | **Direct MTProto client** (supports full Telegram 2 GB file limits) |
-| **Account Ban Safety** | ⚠️ High risk (burst loops trigger Telegram bans) | **✅ Anti-ban queue:** 6–12s human jitter + album batching |
-| **Bandwidth Efficiency** | Downloads the whole file just to view | **4 KB Range Requests:** streams only visible previews on demand |
-| **Location Privacy** | Leaves EXIF / GPS intact | **Automatic client-side EXIF/GPS scrubbing** |
-| **Phone Integration** | No mobile app support | **PWA + Android/iOS native "Share Target"** |
-| **Backup Features** | Just file dumping | **Includes WhatsApp backup & database restore** |
+**PicPocket solves this cleanly:**
+It sits entirely in your browser as a Progressive Web App (PWA). You pick photos, PicPocket strips location tags, encrypts the files with a passphrase only you know, and packs them into neat binary bundles inside your private Telegram channel. When you open the app, it pulls and decrypts only the thumbnails and photos you're actually looking at.
 
 ---
 
 <p align="center">
-  <img src="docs/images/picpocket-mobile-ui.png" alt="PicPocket Mobile Web App Interface" width="320" style="border-radius: 14px; box-shadow: 0 12px 30px rgba(0,0,0,0.6);" />
+  <img src="docs/images/picpocket-mobile-ui.png" alt="PicPocket Mobile Web App Interface" width="310" style="border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);" />
   <br />
-  <em>PicPocket running as a standalone Progressive Web App (PWA) with full-width search, floating action controls, and multi-vault management.</em>
+  <em>PicPocket running as an installed PWA on mobile with full-width search and bottom navigation.</em>
 </p>
 
 ---
 
-## ✨ Features at a Glance
+## Why PicPocket?
+
+- **Unlimited private storage:** Backed by your private Telegram channel. No tiers, no storage caps, no monthly charges.
+- **End-to-end encrypted:** Every photo, video, and thumbnail is encrypted with AES-256-GCM before it leaves your machine. Telegram only stores opaque `.bin` files.
+- **Fast and data-efficient:** Opening your gallery doesn't download gigabytes of data. PicPocket requests only the exact byte ranges (down to 4 KB) needed for visible previews.
+- **Works like a native app:** Install it to your phone or desktop home screen with one tap. It even shows up in your phone's native **"Share"** menu.
+- **Keeps your Telegram account safe:** Unlike naive upload scripts that trigger account bans, PicPocket batches files into media albums and enforces human-like delays between uploads.
+- **Includes WhatsApp backups:** Easily archive raw WhatsApp database backups (`msgstore.db.crypt14/15`) and chat media with deduplication.
+
+---
+
+## Why You Can Trust It
+
+When a tool claims to be "private", you shouldn't have to take the developer's word for it. Here is how PicPocket guarantees security by design:
+
+1. **Zero backend servers:** There is no middleman server, no proxy, and no database running behind PicPocket. The entire app is a static client. If you open your browser's Network Inspector (F12), you will see that connections go strictly to your own host for static assets and to official Telegram servers (`*.telegram.org`) for data.
+2. **Keys stay in memory:** Your passphrase derives an encryption key inside an isolated Web Worker using PBKDF2-SHA256 (600,000 iterations). The resulting key is explicitly marked `extractable: false`, meaning even malicious scripts or browser extensions cannot dump the key from memory.
+3. **Automatic EXIF and GPS stripping:** Modern smartphones embed exact GPS coordinates, timestamps, and device identifiers into photo metadata. PicPocket scrubs this metadata on your device before encryption.
+4. **No telemetry or tracking:** No Google Analytics, no tracking pixels, no advertising SDKs, and no cookies.
+5. **Completely open source:** Every line of cryptographic and networking code is here in this repository for you to audit, fork, or self-host.
+
+---
+
+## PicPocket vs. Typical Telegram Storage Projects
+
+Many open-source projects attempt to use Telegram as free cloud storage. Most of them rely on command-line bots or simple scripts. Here is how PicPocket is different:
+
+| Feature | Standard Telegram Bots & Scripts | PicPocket |
+| :--- | :--- | :--- |
+| **Interface** | Text chats, command-line scripts, or basic tables | **Familiar photo gallery:** Timeline, pinch-to-zoom, video streaming |
+| **Data Privacy** | Plaintext uploads (Telegram and bot hosts can view every photo) | **Encrypted locally with AES-256-GCM** before sending |
+| **Hosting Requirements** | Requires hosting a Python/Node server or Docker container 24/7 | **Zero backend.** Pure static web app running in your browser |
+| **File Limit & Type** | Bot API limits files to 20–50 MB | **Direct MTProto client** supporting files up to Telegram's 2 GB limit |
+| **Account Ban Safety** | High ban risk (tight loops quickly trigger `FloodWaitError`) | **Built-in pacing engine:** 6–12s random delays + album batching |
+| **Bandwidth Use** | Re-downloads the full file just to render a thumbnail | **4 KB Range Requests:** streams only the bytes needed for on-screen tiles |
+| **Location Scrubbing** | Leaves GPS coordinates and camera metadata attached | **Automatic client-side EXIF/GPS scrubbing** before encryption |
+| **Mobile Integration** | None (desktop terminal or chat commands only) | **Installable PWA with native OS Share Target support** |
+| **Chat Tidiness** | Spams hundreds of single messages in your chat | **Packs files into 32 MB bundles** with encrypted indexes |
+
+---
 
 <p align="center">
-  <img src="docs/images/features-grid.svg" alt="PicPocket Feature Highlights" width="100%" />
+  <img src="docs/images/features-grid.svg" alt="Feature Overview" width="100%" />
 </p>
-
-- **Google Photos–Style UI** — Virtualized masonry timeline grouped by date, full-width search, channel switcher, swipeable lightbox with multi-touch zoom (up to 4×), video playback, and dark/light themes.
-- **Zero-Knowledge Vault Encryption** — PBKDF2-SHA256 (600,000 iterations) derives a non-extractable AES-256-GCM key inside an isolated Web Worker.
-- **Fresh IVs & EXIF Scrubbing** — Every encryption generates a cryptographically random 12-byte IV (`crypto.getRandomValues`) with zero IV reuse. EXIF and GPS geolocation metadata are stripped client-side prior to sealing.
-- **Smart 32 MB Container Packing** — Files smaller than 10 MB are bundled into `bundle_<uuid>.bin` archives of roughly 32 MB with an encrypted `TGB1B:` index, replacing dozens of chat messages with a single envelope.
-- **4 KB-Aligned Range Streaming** — Originals and thumbnails in containers are streamed on demand via MTProto partial range downloads aligned to Telegram's 4 KB boundary. You never download the entire bundle just to view one photo.
-- **Anti-Ban Safety & Pacing Engine** — Compliant with Telegram's strict anti-spam limits: album batching (up to 10 photos per call), serialized write lanes with 6.0–12.0 s randomized jitter, and automated `FLOOD_WAIT_n` backoff with safety buffers.
-- **WhatsApp Local Backup Sync** — Select and backup local WhatsApp databases (`msgstore.db.crypt14/15`) and media folders directly to a dedicated Telegram channel with local deduplication.
-- **Installable PWA & Web Share Target** — Works offline for application assets, installs to homescreens, and accepts incoming photos and backups directly from native iOS & Android system share sheets.
 
 ---
 
-## 🏗️ Architecture & Dataflow
+## How It Works Under the Hood
 
 <p align="center">
-  <img src="docs/images/architecture.svg" alt="PicPocket System Architecture" width="100%" />
+  <img src="docs/images/architecture.svg" alt="Architecture Diagram" width="100%" />
 </p>
 
-1. **Client Isolation:** The frontend executes exclusively in the user's browser. `public/_headers` enforces a strict Content Security Policy (`script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, `Permissions-Policy`), preventing unauthorized network leakage.
-2. **Web Worker Core:** Key derivation and encryption take place in `src/workers/crypto.worker.ts`. The derived `CryptoKey` is marked `extractable: false` so it can never be extracted by other scripts.
-3. **Sealed Telegram Channel:** Documents are posted to your private channel as opaque `.bin` attachments with encrypted caption routing:
-   - `TGP1H:<base64url>` — Public channel header salt & verifier for multi-device sync without exposing the passphrase.
-   - `TGP1M:<base64url>` — Sealed individual media metadata and initialization vector.
-   - `TGB1B:<base64url>` — Sealed index for 32 MB packed containers.
-   - `WAB1M:` / `WAB1C:` — Manifest and chunk slices for WhatsApp backups.
+1. **Direct Connection:** When you sign in, the app connects directly to Telegram's MTProto servers via WebSocket.
+2. **Key Derivation:** You choose a master passphrase. The app runs 600,000 rounds of PBKDF2-SHA256 in a Web Worker to derive a 256-bit AES-GCM key.
+3. **Bundling & Encryption:**
+   - Files larger than 10 MB are encrypted individually with a fresh 12-byte random IV.
+   - Smaller files are packed together into 32 MB containers (`bundle_<uuid>.bin`) with an encrypted index (`TGB1B:`). This keeps your Telegram channel organized instead of cluttering it with thousands of tiny files.
+4. **On-Demand Streaming:** When you scroll through your timeline, the app reads the encrypted bundle index and fetches only the required byte ranges from Telegram using 4 KB-aligned MTProto requests.
+5. **Session Protection:** Your active Telegram session is sealed using your vault key before being stored in browser IndexedDB (Dexie). If someone gets physical access to your device, they cannot resume your Telegram session without your passphrase.
 
 ---
 
-## 🔐 Cryptographic Lifecycle
+## Cryptographic Details
 
 <p align="center">
-  <img src="docs/images/crypto-flow.svg" alt="Zero-Knowledge Cryptographic Lifecycle" width="100%" />
+  <img src="docs/images/crypto-flow.svg" alt="Crypto Flowchart" width="100%" />
 </p>
 
-| Stage | Primitive | Purpose |
-| --- | --- | --- |
-| **Passphrase Stretcher** | PBKDF2-SHA256 (600,000 iterations) | Derives 256-bit vault key from user passphrase and CSPRNG salt |
-| **Vault Encryption Key** | AES-256-GCM (`extractable: false`) | Kept in Worker memory; encrypts session and media blobs |
-| **Nonce / IV** | 12-byte CSPRNG (`crypto.getRandomValues`) | Fresh, unique IV per media chunk and metadata envelope |
-| **Integrity Verification** | GCM 128-bit Authentication Tag | Detects tampering or bit-rot before decryption |
-| **Session Persistence** | AES-GCM Sealed Session in IndexedDB | Telegram MTProto session is encrypted before writing to Dexie |
+- **Key Stretcher:** PBKDF2 with SHA-256, 600,000 iterations, and a 16-byte cryptographically secure random salt.
+- **Encryption:** AES-256-GCM with 128-bit authentication tags to verify file integrity.
+- **Nonce / IV:** A fresh 12-byte IV generated via `crypto.getRandomValues()` for every single chunk, thumbnail, and envelope. Zero IV reuse.
+- **Key Isolation:** The derived `CryptoKey` is set to `extractable: false` and kept inside the Web Worker context.
+- **Channel Header (`TGP1H:`):** A public salt and encrypted verifier pinned in the channel allows you to unlock the same vault on multiple devices without your password ever leaving your head.
 
 ---
 
-## 🛠️ Tech Stack
+## Anti-Ban & Telegram Rate Limits
 
-- **UI Framework:** React 18, TypeScript, Tailwind CSS v4, Lucide Icons
-- **MTProto Protocol:** `@mtcute/web` (Direct Telegram MTProto over WebSockets with WebAssembly crypto)
-- **Local Storage:** Dexie (IndexedDB) for encrypted sessions and cached thumbnails
-- **Cryptography:** Web Crypto API + Dedicated Web Worker (`crypto.worker.ts`)
-- **PWA / Service Worker:** `vite-plugin-pwa` + Workbox with Web Share Target POST handler
-- **Build System:** Vite 6
+Telegram actively flags and bans accounts that automate spammy upload loops. PicPocket is designed from the ground up to operate safely within Telegram's fair-use limits:
+
+- **Album Batching:** Automatically groups up to 10 photos or videos per request using native MTProto media albums instead of hammering the API with separate calls.
+- **Randomized Jitter:** Uploads are spaced with randomized delays (6 to 12 seconds) to simulate natural human activity.
+- **FloodWait Protection:** If Telegram issues a rate-limit warning (`FLOOD_WAIT_X`), PicPocket pauses automatically for the required duration plus an extra 4-second safety buffer.
+- **Cached Entity Hashes:** Channels and access hashes are cached locally to avoid repetitive entity resolution lookups.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
+- Node.js 20 or newer
+- A Telegram account and an API App ID (create one in seconds at [my.telegram.org/apps](https://my.telegram.org/apps))
 
-- Node.js 20+
-- A Telegram account and an API application ID (get one at [my.telegram.org/apps](https://my.telegram.org/apps)).
-
-### Setup & Run Locally
+### Running Locally
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/frequency/PicPocket.git
 cd PicPocket
 
-# 2. Install dependencies (zero-install audit verified)
+# 2. Install dependencies
 npm install
 
 # 3. Configure Telegram API credentials
 cp .env.example .env
-# Edit .env with your VITE_TELEGRAM_API_ID and VITE_TELEGRAM_API_HASH
+# Open .env and set your VITE_TELEGRAM_API_ID and VITE_TELEGRAM_API_HASH
 
-# 4. Start the development server
+# 4. Start the dev server
 npm run dev
 ```
 
 Open `http://localhost:5173` in your browser.
 
-> **Note on Credentials:** `VITE_TELEGRAM_API_*` is optional. If left blank, PicPocket prompts you to enter your credentials on the login screen and stores them locally in your browser.
+> **Tip:** Supplying `VITE_TELEGRAM_API_*` in `.env` is optional. If left blank, PicPocket simply asks for your API ID on the login screen and keeps it safely in your local browser storage.
 
-### Available Scripts
+### Useful Commands
 
-| Command | Action |
-| --- | --- |
-| `npm run dev` | Starts local Vite development server with HMR |
-| `npm run build` | Compiles production assets and generates PWA service worker into `dist/` |
-| `npm run preview` | Previews the production build locally |
-| `npm run typecheck` | Runs strict TypeScript verification (`tsc --noEmit`) |
-| `npm run icons` | Regenerates PWA icons |
+| Command | What it does |
+| :--- | :--- |
+| `npm run dev` | Starts Vite local development server |
+| `npm run build` | Compiles production assets and generates PWA files in `dist/` |
+| `npm run preview` | Serves the production build locally |
+| `npm run typecheck` | Runs `tsc --noEmit` to verify TypeScript types |
+| `npm run icons` | Re-generates PWA app icons |
 
 ---
 
-## 🌐 Deployment
+## Deploying Your Own Copy
 
-Because PicPocket is 100% client-side, it deploys to any static hosting service.
+Because PicPocket has no backend, you can deploy it to any free static host in minutes.
 
-### Cloudflare Pages / Workers
+### Cloudflare Pages
 
-1. Connect your repository to Cloudflare Pages.
-2. Configure build settings:
-   - **Framework preset:** Vite
+1. Link your GitHub repository to Cloudflare Pages.
+2. Build configuration:
+   - **Framework:** Vite
    - **Build command:** `npm run build`
-   - **Build output directory:** `dist`
-3. Add environment variables under **Settings → Environment Variables**:
-   - `VITE_TELEGRAM_API_ID`
-   - `VITE_TELEGRAM_API_HASH`
-4. The included `public/_headers` automatically configures security headers (CSP, HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and `Permissions-Policy`).
+   - **Output directory:** `dist`
+3. Under **Settings → Environment Variables**, add your `VITE_TELEGRAM_API_ID` and `VITE_TELEGRAM_API_HASH`.
+4. Deploy. The included `public/_headers` file automatically applies strict security policies (CSP, X-Frame-Options, and Permissions-Policy).
 
 ### Vercel
 
-Import the repository in Vercel with:
-- **Build Command:** `npm run build`
-- **Output Directory:** `dist`
-- Configured automatically via `vercel.json`.
+Import the repository in Vercel with standard Vite settings. The provided `vercel.json` configures single-page application routing and security headers automatically.
 
 ---
 
-## 🛡️ Anti-Ban & Rate-Limit Compliance
-
-PicPocket is engineered according to Telegram's official API guidelines to protect user accounts from automated spam flags:
-
-- **Album Grouping:** Up to 10 photos or videos are batched into a single media group call rather than firing individual requests.
-- **Paced Writes:** Enforces 6.0–12.0 s randomized delays between consecutive upload batches.
-- **FloodWait Handling:** Catches MTProto `FLOOD_WAIT_X` exceptions and sleeps for `X + 4.0s` jitter buffer before resuming.
-- **Cached InputPeers:** Access hashes and peer identifiers are cached locally to eliminate repetitive entity resolution calls.
-
----
-
-## 📂 Project Structure
+## Project Structure
 
 ```text
 PicPocket/
 ├── docs/
-│   └── images/              # Architecture, flowcharts, banner, and UI assets
+│   └── images/              # Architecture diagrams, flowcharts, and screenshots
 ├── public/
-│   ├── _headers             # Cloudflare Pages security headers and CSP
-│   ├── manifest.json        # Web App Manifest & Web Share Target configuration
-│   └── theme-init.js        # Zero-flash theme bootstrapper
+│   ├── _headers             # Security headers and CSP rules
+│   ├── manifest.json        # PWA manifest & Web Share Target setup
+│   └── theme-init.js        # Script to prevent dark/light theme flashing
 ├── src/
-│   ├── components/          # UI: AuthScreen, PhotoGrid, Lightbox, TopBar, WhatsAppBackupView
-│   ├── hooks/               # useTelegramAuth, useFullMedia, useThumbnail, useChannelMedia
-│   ├── lib/                 # config, format, timeline grouping
+│   ├── components/          # Gallery grid, lightbox, upload modals, WhatsApp view
+│   ├── hooks/               # State hooks for auth, timeline, media loading
+│   ├── lib/                 # Formatting, timeline grouping, config
 │   ├── services/
-│   │   ├── cache/           # Dexie database schema and thumb storage
-│   │   ├── crypto/          # Web Worker client and encoding utilities
-│   │   ├── media/           # Upload pacing, container bundling, EXIF scrubbing
-│   │   ├── telegram/        # MTProto façade, captions, anti-ban queue
-│   │   └── whatsapp/        # WhatsApp folder backup, chunking, deduplication
-│   ├── workers/             # Dedicated AES-256-GCM / PBKDF2 Web Worker
-│   ├── App.tsx              # Root app orchestrator and view routing
-│   ├── main.tsx             # React entrypoint
-│   └── sw.ts                # Workbox service worker & share target interceptor
-├── SECURITY.md              # Security policies and cryptographic specifications
-└── vite.config.ts           # Vite + Tailwind + PWA bundler configuration
+│   │   ├── cache/           # Dexie IndexedDB caching for thumbnails & sessions
+│   │   ├── crypto/          # Web Worker crypto client and encoding helpers
+│   │   ├── media/           # Bundle packing, range streaming, EXIF stripping
+│   │   ├── telegram/        # MTProto connection, anti-ban pacing, caption parser
+│   │   └── whatsapp/        # WhatsApp backup parser and deduplication
+│   ├── workers/             # Isolated AES-256-GCM / PBKDF2 Web Worker
+│   ├── App.tsx              # Main UI routing and state management
+│   ├── main.tsx             # Application entrypoint
+│   └── sw.ts                # Service worker for offline shell & Share Target
+├── SECURITY.md              # Detailed security audit notes and threat model
+└── vite.config.ts           # Bundler and PWA build configuration
 ```
 
 ---
 
-## 📄 License
+## License
 
-PicPocket is released under the [MIT License](LICENSE).
+PicPocket is open-source software licensed under the [MIT License](LICENSE).
