@@ -18,7 +18,53 @@ A private, client-side Google Photos–style gallery that turns your own Telegra
 
 ---
 
-## 📱 Mobile & Web App Preview
+## 💡 In Plain English: What is PicPocket?
+
+Think of **PicPocket** as a **free, unlimited, private Google Photos replacement**. 
+
+Instead of paying Google or Apple a monthly fee when your cloud storage fills up, PicPocket uses your own private Telegram channel as an encrypted storage drive. 
+
+You get the smooth, visual gallery experience of Google Photos (dates, albums, zoom, video playback, swipe gestures), but **no one—not even Telegram, Google, or the app creators—can ever see your photos, videos, or passwords.**
+
+---
+
+## 🌟 Why Choose PicPocket?
+
+- **💰 Free & Unlimited for Life** — Google Photos gives you 15 GB before charging. Telegram channels offer free unlimited storage for files. PicPocket unlocks this for your photo library.
+- **🛡️ True Privacy (Zero-Knowledge)** — Your files are locked with military-grade encryption (AES-256-GCM) on your device *before* they leave. Telegram only stores scrambled, unreadable binary files (`.bin`).
+- **📱 Real App Feel on Phone & PC** — Install it with one click as a Progressive Web App (PWA). It works offline, supports dark mode, and even appears in your phone's native **"Share to..."** menu.
+- **⚡ Super Fast Loading** — You don't have to wait for large files to download. PicPocket intelligently bundles small photos together and streams only the exact pieces needed to show your screen.
+- **💬 Built-in WhatsApp Backup** — Directly back up and restore your local WhatsApp chat database and media without relying on Google Drive.
+
+---
+
+## 🤝 Why You Can Trust It
+
+1. **🚫 Zero Backend Servers:** There is literally no middleman server. The code runs 100% inside your own browser tab. You can open your browser's Network Inspector (F12) and see that requests **only go to official Telegram servers**.
+2. **🔑 Non-Extractable Keys:** Your vault password is transformed into a cryptographic key inside an isolated browser Web Worker. The browser security system enforces that this key **can never be exported or read by external scripts**.
+3. **📍 Automatic Location & EXIF Cleaning:** Phones embed hidden GPS coordinates in photos. PicPocket automatically strips location, camera serial numbers, and metadata before encryption so your physical location is never leaked.
+4. **📦 Your Data, Your Account:** There is no third-party database. If you delete PicPocket or clear your browser, simply enter your password in any new browser, and your photos re-appear from your private channel.
+5. **🛡️ 100% Open Source & Zero Telemetry:** No Google Analytics, no tracking pixels, no hidden ads. Every single line of code can be audited right here.
+
+---
+
+## ⚔️ How PicPocket is Different From Other GitHub Projects
+
+Most other "Telegram-as-Cloud-Storage" projects on GitHub are either simple Telegram bots or Python command-line tools. Here is how PicPocket compares:
+
+| Feature | Typical GitHub Telegram Drives | 🚀 PicPocket |
+| :--- | :--- | :--- |
+| **User Interface** | Clunky chat bots or terminal CLI | **Google Photos–style visual gallery** with timeline & pinch-to-zoom |
+| **Privacy & Encryption** | ❌ Plaintext (Telegram can see all photos) | **✅ 100% Client-side AES-256-GCM** (Telegram only sees scrambled `.bin`) |
+| **Architecture** | Requires hosting a Python / Node server | **Zero backend.** 100% static client app running in your browser |
+| **Bot Token vs Personal** | Uses bot tokens (limited to 20–50 MB files) | **Direct MTProto client** (supports full Telegram 2 GB file limits) |
+| **Account Ban Safety** | ⚠️ High risk (burst loops trigger Telegram bans) | **✅ Anti-ban queue:** 6–12s human jitter + album batching |
+| **Bandwidth Efficiency** | Downloads the whole file just to view | **4 KB Range Requests:** streams only visible previews on demand |
+| **Location Privacy** | Leaves EXIF / GPS intact | **Automatic client-side EXIF/GPS scrubbing** |
+| **Phone Integration** | No mobile app support | **PWA + Android/iOS native "Share Target"** |
+| **Backup Features** | Just file dumping | **Includes WhatsApp backup & database restore** |
+
+---
 
 <p align="center">
   <img src="docs/images/picpocket-mobile-ui.png" alt="PicPocket Mobile Web App Interface" width="320" style="border-radius: 14px; box-shadow: 0 12px 30px rgba(0,0,0,0.6);" />
