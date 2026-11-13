@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MediaItem, TimelineOffset } from '../types/media';
 import type { ChannelMediaBatch, RemoteMediaDescriptor } from '../types/telegram';
 import {
+  clearChannelCache,
   deleteCachedMedia,
   deleteCachedThumb,
   getCachedMedia,
@@ -304,12 +305,25 @@ export function usePhotoTimeline(options: {
    * Manual refresh: forget which items failed to decrypt and start from the
    * newest message so a newly synced channel key re-decodes the whole page.
    */
+  /**
+   * Manual refresh: forget which items failed to decrypt and start from the
+   * newest message so a newly synced channel key re-decodes the whole page.
+   *
+   * Also drops the cached index/thumbs for the selected channels. Telegram
+   * messages deleted outside the app never come back in a fetch, so without
+   * this the timeline keeps showing stale entries alongside new ones.
+   */
   const resetScan = useCallback(async () => {
     skippedRef.current.clear();
     setSkipped(0);
     cursorsRef.current = new Map();
+    // Clear in-memory items immediately so deleted rows stop showing while
+    // the fresh first page loads.
+    setItems([]);
+    await Promise.all(channelIds.map((id) => clearChannelCache(id).catch(() => undefined)));
+    if (!mountedRef.current) return;
     setGeneration((value) => value + 1);
-  }, []);
+  }, [channelIds]);
 
   const removeItems = useCallback(
     (ids: readonly string[]) => {

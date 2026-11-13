@@ -154,6 +154,7 @@ export default function App() {
   const pull = usePullToRefresh(
     photosRef,
     () => {
+      clearFullMediaCache();
       void timeline.resetScan();
     },
     ready && view === 'photos' && channels.selectedIds.length > 0,
@@ -551,7 +552,10 @@ export default function App() {
 
             <button
               type="button"
-              onClick={() => void timeline.resetScan()}
+              onClick={() => {
+                clearFullMediaCache();
+                void timeline.resetScan();
+              }}
               aria-label="Sync channels"
               title="Sync channels"
               className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-ink"
