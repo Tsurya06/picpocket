@@ -27,6 +27,7 @@ import { WhatsAppBackupView } from './components/WhatsAppBackupView';
 import { PhotoGrid } from './components/PhotoGrid';
 import { Lightbox } from './components/Lightbox';
 import { ChannelSelectorModal } from './components/ChannelSelectorModal';
+import { ChannelPickerModal } from './components/ChannelPickerModal';
 import { ChannelVaultBanner } from './components/ChannelVaultBanner';
 import { SettingsModal } from './components/SettingsModal';
 import { UploadPill } from './components/UploadPill';
@@ -35,6 +36,15 @@ import { SkeletonGrid, Spinner } from './components/ui/Spinner';
 import { pruneShareCache, readSharedPayload } from './services/whatsapp/shareTarget';
 
 const ENCRYPT_PREFERENCE_KEY = 'vaultphotos.encrypt';
+const BACKUP_CHANNEL_KEY = 'picpocket.backupChannel';
+
+const readBackupChannel = (): string | null => {
+  try {
+    return localStorage.getItem(BACKUP_CHANNEL_KEY);
+  } catch {
+    return null;
+  }
+};
 
 const readEncryptPreference = (): boolean => {
   try {
@@ -86,6 +96,8 @@ export default function App() {
   const [viewChannelId, setViewChannelId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [backupPickerOpen, setBackupPickerOpen] = useState(false);
+  const [backupChannelId, setBackupChannelId] = useState<string | null>(readBackupChannel);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [encryptUploads, setEncryptUploads] = useState(readEncryptPreference);
@@ -132,8 +144,19 @@ export default function App() {
 
   const targetChannelId = viewChannelId ?? channels.selectedIds[0] ?? null;
   const backupChannelTitle =
-    channels.channels.find((channel) => channel.id === targetChannelId)?.title ??
-    (targetChannelId ? 'Selected channel' : null);
+    channels.channels.find((channel) => channel.id === backupChannelId)?.title ??
+    (backupChannelId ? 'Selected channel' : null);
+
+  // The WhatsApp tab keeps its own channel; picking one there never changes the
+  // photo library selection.
+  const chooseBackupChannel = useCallback((id: string) => {
+    setBackupChannelId(id);
+    try {
+      localStorage.setItem(BACKUP_CHANNEL_KEY, id);
+    } catch {
+      // Preference persistence is optional.
+    }
+  }, []);
 
   const visibleItems = useMemo(() => {
     const filtered = filterMedia(timeline.items, query);
@@ -524,9 +547,9 @@ export default function App() {
           </main>
           ) : (
             <WhatsAppBackupView
-              channelId={targetChannelId}
+              channelId={backupChannelId}
               channelTitle={backupChannelTitle}
-              onChooseChannel={() => setSelectorOpen(true)}
+              onChooseChannel={() => setBackupPickerOpen(true)}
               sharedFiles={sharedFiles}
               onSharedConsumed={() => setSharedFiles([])}
             />
@@ -585,6 +608,16 @@ export default function App() {
           <Plus size={26} />
         </button>
       ) : null}
+
+      <ChannelPickerModal
+        open={backupPickerOpen}
+        onClose={() => setBackupPickerOpen(false)}
+        channels={channels.channels}
+        selectedId={backupChannelId}
+        loading={channels.loading}
+        onSelect={chooseBackupChannel}
+        onRefresh={() => void channels.refresh()}
+      />
 
       <ChannelSelectorModal
         open={selectorOpen}

@@ -425,30 +425,6 @@ export function WhatsAppBackupView({
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard
-          label="Last backup"
-          value={summary ? humanDayLabel(summary.createdAt) : 'Never'}
-          detail={summary ? formatFullDate(summary.createdAt) : 'Nothing backed up yet'}
-          icon={<CloudUpload size={13} />}
-          loading={summaryLoading}
-        />
-        <StatCard
-          label="Chat history"
-          value={summary?.database ? formatBytes(summary.database.size) : 'Not backed up'}
-          detail="Messages & groups"
-          icon={<Database size={13} />}
-          loading={summaryLoading}
-        />
-        <StatCard
-          label="WhatsApp media"
-          value={summary ? `${summary.mediaCount.toLocaleString()} files` : '0 files'}
-          detail={summary ? `${formatBytes(summary.totalBytes)} total` : 'Images, video, voice notes'}
-          icon={<FileArchive size={13} />}
-          loading={summaryLoading}
-        />
-      </div>
-
       {error ? (
         <div
           role="alert"
@@ -588,6 +564,30 @@ export function WhatsAppBackupView({
             </div>
           ) : null}
         </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard
+          label="Last backup"
+          value={summary ? humanDayLabel(summary.createdAt) : 'Never'}
+          detail={summary ? formatFullDate(summary.createdAt) : 'Nothing backed up yet'}
+          icon={<CloudUpload size={13} />}
+          loading={summaryLoading}
+        />
+        <StatCard
+          label="Chat history"
+          value={summary?.database ? formatBytes(summary.database.size) : 'Not backed up'}
+          detail="Messages & groups"
+          icon={<Database size={13} />}
+          loading={summaryLoading}
+        />
+        <StatCard
+          label="WhatsApp media"
+          value={summary ? `${summary.mediaCount.toLocaleString()} files` : '0 files'}
+          detail={summary ? `${formatBytes(summary.totalBytes)} total` : 'Images, video, voice notes'}
+          icon={<FileArchive size={13} />}
+          loading={summaryLoading}
+        />
       </div>
 
       <div className="mt-5 overflow-hidden rounded-3xl border border-line bg-elevated">
