@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { File, FileArchive, FileText, ImageOff, Lock, Play } from 'lucide-react';
+import { Check, File, FileArchive, FileText, ImageOff, Lock, Play } from 'lucide-react';
 import type { MediaItem, MonthGroup } from '../types/media';
 import { formatBytes, formatDuration } from '../lib/format';
 import { useThumbnail } from '../hooks/useThumbnail';
@@ -15,6 +22,9 @@ export interface PhotoGridProps {
   readonly onLoadMore: () => void;
   readonly onOpen: (item: MediaItem) => void;
   readonly emptyState: ReactNode;
+  readonly selectedIds: ReadonlySet<string>;
+  readonly onLongPress: (item: MediaItem) => void;
+  readonly onToggleSelect: (item: MediaItem) => void;
 }
 
 const MIN_TILE = 148;
@@ -34,18 +44,100 @@ const fileIconFor = (item: MediaItem): typeof File => {
   return File;
 };
 
+const LONG_PRESS_MS = 450;
+
 function MediaTile({
   item,
   onOpen,
   fill,
+  selected,
+  selecting,
+  onLongPress,
+  onToggleSelect,
 }: {
   item: MediaItem;
   onOpen: (item: MediaItem) => void;
   fill: boolean;
+  selected: boolean;
+  selecting: boolean;
+  onLongPress: (item: MediaItem) => void;
+  onToggleSelect: (item: MediaItem) => void;
 }) {
   const [tileRef, nearViewport] = useNearViewport<HTMLButtonElement>();
   const { url, loading, failed } = useThumbnail(item, nearViewport);
   const sizing = fill ? 'h-full w-full' : 'w-full';
+
+  const timerRef = useRef<number | null>(null);
+  const originRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  const clearTimer = (): void => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  useEffect(() => clearTimer, []);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    suppressClickRef.current = false;
+    originRef.current = { x: event.clientX, y: event.clientY };
+    clearTimer();
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      // The click that follows a long press must not open the viewer. It is
+      // cleared on the next pointerdown in case no click ever arrives.
+      suppressClickRef.current = true;
+      onLongPress(item);
+    }, LONG_PRESS_MS);
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    const origin = originRef.current;
+    if (!origin) return;
+    if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 10) clearTimer();
+  };
+
+  const endPress = (): void => {
+    clearTimer();
+    originRef.current = null;
+  };
+
+  const onClick = (): void => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (selecting) onToggleSelect(item);
+    else onOpen(item);
+  };
+
+  const onContextMenu = (event: ReactMouseEvent<HTMLButtonElement>): void => {
+    // Android fires a context menu on long press; keep our gesture instead.
+    event.preventDefault();
+  };
+
+  const interactions = {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endPress,
+    onPointerCancel: endPress,
+    onPointerLeave: endPress,
+    onClick,
+    onContextMenu,
+    'aria-pressed': selected,
+  } as const;
+
+  const selectionOverlay = selected ? (
+    <>
+      <span className="pointer-events-none absolute inset-0 z-10 rounded-[var(--radius-tile)] ring-2 ring-inset ring-accent" />
+      <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-accent text-accent-ink shadow">
+        <Check size={14} strokeWidth={3} />
+      </span>
+    </>
+  ) : null;
 
   if (item.kind === 'file') {
     const FileIcon = fileIconFor(item);
@@ -53,10 +145,11 @@ function MediaTile({
       <button
         ref={tileRef}
         type="button"
-        onClick={() => onOpen(item)}
+        {...interactions}
         className={`tile-in group relative block overflow-hidden rounded-[var(--radius-tile)] border border-line bg-elevated text-left focus-visible:outline-offset-4 ${sizing}`}
         aria-label={`File ${item.fileName}`}
       >
+        {selectionOverlay}
         <span className="flex h-full w-full flex-col justify-between p-3">
           <span className="flex items-start justify-between gap-2">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface text-accent">
@@ -87,10 +180,11 @@ function MediaTile({
     <button
       ref={tileRef}
       type="button"
-      onClick={() => onOpen(item)}
+      {...interactions}
       className={`tile-in group relative block overflow-hidden rounded-[var(--radius-tile)] bg-surface text-left focus-visible:outline-offset-4 ${sizing}`}
       aria-label={`${item.kind === 'video' ? 'Video' : 'Photo'} ${item.fileName}`}
     >
+      {selectionOverlay}
       {url ? (
         <img
           src={url}
@@ -177,7 +271,11 @@ export function PhotoGrid({
   onLoadMore,
   onOpen,
   emptyState,
+  selectedIds,
+  onLongPress,
+  onToggleSelect,
 }: PhotoGridProps) {
+  const selecting = selectedIds.size > 0;
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -305,7 +403,16 @@ export function PhotoGrid({
                     }}
                   >
                     {row.items.map((item) => (
-                      <MediaTile key={item.id} item={item} onOpen={onOpen} fill />
+                      <MediaTile
+                        key={item.id}
+                        item={item}
+                        onOpen={onOpen}
+                        fill
+                        selected={selectedIds.has(item.id)}
+                        selecting={selecting}
+                        onLongPress={onLongPress}
+                        onToggleSelect={onToggleSelect}
+                      />
                     ))}
                   </div>
                 ) : null}

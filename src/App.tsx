@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import {
+  Download,
   FolderLock,
   Images,
   Lock,
@@ -7,8 +8,10 @@ import {
   RefreshCw,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Unlock,
   Upload,
+  X,
 } from 'lucide-react';
 import type { MediaItem } from './types/media';
 import { useTheme } from './hooks/useTheme';
@@ -18,9 +21,10 @@ import { usePhotoTimeline } from './hooks/usePhotoTimeline';
 import { useUploader } from './hooks/useUploader';
 import { useChannelVaults } from './hooks/useChannelVaults';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
-import { clearFullMediaCache } from './hooks/useFullMedia';
+import { clearFullMediaCache, getFullMediaUrl } from './hooks/useFullMedia';
 import { describeError, telegramService } from './services/telegram/mtprotoClient';
 import { filterMedia, groupTimeline } from './lib/timeline';
+import { formatBytes } from './lib/format';
 import { AuthScreen } from './components/AuthScreen';
 import { AppNav, type AppView } from './components/AppNav';
 import { TopBar } from './components/TopBar';
@@ -46,6 +50,8 @@ const readBackupChannel = (): string | null => {
     return null;
   }
 };
+
+const safeFileName = (name: string): string => name.replace(/[\\/:*?"<>|]+/g, '-');
 
 const readEncryptPreference = (): boolean => {
   try {
@@ -105,11 +111,21 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<AppView>('photos');
   const [sharedFiles, setSharedFiles] = useState<File[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkDeleteArmed, setBulkDeleteArmed] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const photosRef = useRef<HTMLElement | null>(null);
   const autoOpenedRef = useRef(false);
   const dragDepthRef = useRef(0);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setBulkDeleteArmed(false);
+    setBulkError(null);
+  }, []);
 
   const timeline = usePhotoTimeline({
     channelIds: channels.selectedIds,
@@ -193,8 +209,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (view !== 'photos') setLightboxId(null);
-  }, [view]);
+    if (view !== 'photos') {
+      setLightboxId(null);
+      clearSelection();
+    }
+  }, [clearSelection, view]);
+
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') clearSelection();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [clearSelection, selectedIds.size]);
 
   useEffect(() => {
     if (viewChannelId && !channels.selectedIds.includes(viewChannelId)) {
@@ -258,6 +286,93 @@ export default function App() {
     }
     fileInputRef.current?.click();
   };
+
+  const startSelection = useCallback((item: MediaItem) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.add(item.id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelected = useCallback((item: MediaItem) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+  }, []);
+
+  const selectedItems = useMemo(
+    () => visibleItems.filter((item) => selectedIds.has(item.id)),
+    [selectedIds, visibleItems],
+  );
+
+  const downloadSelected = useCallback(async () => {
+    if (selectedItems.length === 0 || bulkBusy) return;
+    setBulkError(null);
+    try {
+      for (let index = 0; index < selectedItems.length; index += 1) {
+        const entry = selectedItems[index];
+        if (!entry) continue;
+        setBulkBusy(`Downloading ${index + 1} of ${selectedItems.length}…`);
+        const media = await getFullMediaUrl(entry);
+        const anchor = document.createElement('a');
+        anchor.href = media.url;
+        anchor.download = safeFileName(entry.fileName);
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        // Give the browser a moment between saves.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      setBulkBusy(null);
+      clearSelection();
+    } catch (caught) {
+      setBulkBusy(null);
+      setBulkError(describeError(caught));
+    }
+  }, [bulkBusy, clearSelection, selectedItems]);
+
+  const deleteSelected = useCallback(async () => {
+    if (selectedItems.length === 0 || bulkBusy) return;
+    setBulkError(null);
+    setBulkBusy(`Deleting ${selectedItems.length}…`);
+    try {
+      const bundleIds = new Set(
+        selectedItems.flatMap((entry) => (entry.packed ? [entry.packed.bundleMessageId] : [])),
+      );
+      const targets = visibleItems.filter(
+        (entry) =>
+          selectedIds.has(entry.id) ||
+          (entry.packed !== undefined && bundleIds.has(entry.packed.bundleMessageId)),
+      );
+
+      const byChannel = new Map<string, number[]>();
+      for (const entry of targets) {
+        const ids = entry.packed
+          ? [entry.packed.bundleMessageId, entry.packed.bundleIndexMessageId]
+          : entry.thumbMessageId !== undefined
+            ? [entry.messageId, entry.thumbMessageId]
+            : [entry.messageId];
+        byChannel.set(entry.channelId, [...(byChannel.get(entry.channelId) ?? []), ...ids]);
+      }
+
+      for (const [channelId, ids] of byChannel) {
+        await telegramService.deleteMessages(channelId, [...new Set(ids)]);
+      }
+
+      timeline.removeItems(targets.map((entry) => entry.id));
+      setLightboxId(null);
+      setBulkBusy(null);
+      clearSelection();
+    } catch (caught) {
+      setBulkBusy(null);
+      setBulkDeleteArmed(false);
+      setBulkError(describeError(caught));
+    }
+  }, [bulkBusy, clearSelection, selectedIds, selectedItems, timeline, visibleItems]);
 
   const handleDelete = useCallback(
     async (item: MediaItem) => {
@@ -520,6 +635,9 @@ export default function App() {
               hasMore={timeline.hasMore}
               onLoadMore={() => void timeline.loadMore()}
               onOpen={(item) => setLightboxId(item.id)}
+              selectedIds={selectedIds}
+              onLongPress={startSelection}
+              onToggleSelect={toggleSelected}
               emptyState={
                 <EmptyPanel
                   icon={<Upload size={32} />}
@@ -590,6 +708,81 @@ export default function App() {
         </div>
       ) : null}
 
+      {selectedIds.size > 0 ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-30 flex justify-center px-3">
+          <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-line bg-elevated/95 shadow-2xl backdrop-blur">
+            {bulkDeleteArmed ? (
+              <div className="p-3">
+                <p className="text-sm font-medium text-ink">
+                  Delete {selectedItems.length} item{selectedItems.length === 1 ? '' : 's'}?
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                  They are removed from the channel for everyone and cannot be restored.
+                </p>
+                {bulkError ? <p className="mt-2 text-[11px] text-danger">{bulkError}</p> : null}
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setBulkDeleteArmed(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void deleteSelected()}
+                    disabled={bulkBusy !== null}
+                    leadingIcon={<Trash2 size={14} />}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 p-2.5">
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  aria-label="Cancel selection"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-ink"
+                >
+                  <X size={17} />
+                </button>
+                <p className="min-w-0 flex-1 truncate text-xs font-medium text-ink">
+                  {bulkBusy ??
+                    `${selectedItems.length} selected`}
+                  {selectedItems.length > 0 && !bulkBusy ? (
+                    <span className="ml-1 font-normal text-muted">
+                      · {formatBytes(selectedItems.reduce((sum, entry) => sum + entry.size, 0))}
+                    </span>
+                  ) : null}
+                </p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void downloadSelected()}
+                  disabled={bulkBusy !== null}
+                  leadingIcon={
+                    bulkBusy ? <Spinner size={14} /> : <Download size={14} />
+                  }
+                >
+                  Download
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => setBulkDeleteArmed(true)}
+                  disabled={bulkBusy !== null}
+                  leadingIcon={<Trash2 size={14} />}
+                >
+                  Delete
+                </Button>
+              </div>
+            )}
+            {bulkError && !bulkDeleteArmed ? (
+              <p className="px-3 pb-2 text-[11px] text-danger">{bulkError}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {uploader.progress ? (
         <UploadPill
           progress={uploader.progress}
@@ -601,7 +794,7 @@ export default function App() {
       ) : null}
 
       {/* Mobile Floating Action Button (FAB): only when library has media items */}
-      {view === 'photos' && visibleItems.length > 0 && targetChannelId ? (
+      {view === 'photos' && visibleItems.length > 0 && targetChannelId && selectedIds.size === 0 ? (
         <button
           type="button"
           onClick={openFilePicker}

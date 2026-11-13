@@ -99,6 +99,11 @@ async function load(item: MediaItem, onProgress?: (fraction: number) => void): P
   }
 }
 
+/** Resolves a decrypted object URL for an item, reusing the cache. */
+export async function getFullMediaUrl(item: MediaItem): Promise<CachedMedia> {
+  return load(item);
+}
+
 /** Warms the cache for a neighbour so the next swipe needs no download. */
 export function prefetchFullMedia(item: MediaItem | null | undefined): void {
   if (!item) return;
