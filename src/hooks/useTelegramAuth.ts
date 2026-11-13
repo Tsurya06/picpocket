@@ -308,6 +308,9 @@ export function useTelegramAuth(): AuthController {
     await cryptoClient.lock();
     telegramService.dispose();
     pendingSessionRef.current = null;
+    // Clear API credentials from memory on lock so they are not accessible
+    // while the vault is locked. They are re-hydrated on the next unlock.
+    credentialsRef.current = null;
     setState((current) => ({
       ...current,
       status: current.profile ? 'locked' : 'onboarding',
