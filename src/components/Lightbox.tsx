@@ -556,7 +556,9 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
         <div className="absolute inset-x-0 bottom-24 z-30 mx-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-white/15 bg-[#17181c] p-4 shadow-2xl">
           <p className="text-sm font-medium">Delete from the channel?</p>
           <p className="mt-1 text-xs leading-relaxed text-white/60">
-            This removes the message for everyone in the channel. {item.thumbMessageId ? 'The encrypted preview is removed too. ' : ''}
+            {item.packed
+              ? 'This removes only this item from the encrypted bundle; the other items in the bundle stay. '
+              : `This removes the message for everyone in the channel. ${item.thumbMessageId ? 'The encrypted preview is removed too. ' : ''}`}
             It cannot be undone.
           </p>
           {error ? <p className="mt-2 text-xs text-red-400">{error}</p> : null}

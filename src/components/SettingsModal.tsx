@@ -3,6 +3,7 @@ import {
   Check,
   Database,
   FolderLock,
+  FolderSync,
   HardDrive,
   LogOut,
   Moon,
@@ -12,6 +13,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { TelegramAccount, ThemeMode, VaultProfile } from '../types/media';
+import type { FolderSyncApi } from '../hooks/useFolderSync';
 import { formatBytes, formatFullDate } from '../lib/format';
 import { clearAllMediaCache, getCacheStats } from '../services/cache/db';
 import { Button } from './ui/Button';
@@ -28,6 +30,7 @@ export interface SettingsModalProps {
   readonly onToggleTheme: () => void;
   readonly encryptUploads: boolean;
   readonly onToggleEncrypt: (value: boolean) => void;
+  readonly folderSync: FolderSyncApi;
   readonly onManageChannels: () => void;
   readonly onLock: () => void;
   readonly onReset: () => void;
@@ -44,6 +47,7 @@ export function SettingsModal({
   onToggleTheme,
   encryptUploads,
   onToggleEncrypt,
+  folderSync,
   onManageChannels,
   onLock,
   onReset,
@@ -154,6 +158,113 @@ export function SettingsModal({
                 }`}
               />
             </button>
+          </div>
+
+          {/* Folder sync */}
+          <div className="border-b border-line p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                  <FolderSync size={15} className="text-accent" /> Folder sync
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  Add new photos and videos from a folder on this device. New files follow your
+                  Encrypt new uploads setting; files already synced are skipped by path, size, and
+                  modified time.
+                </p>
+              </div>
+              {folderSync.folderName ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void folderSync.syncNow()}
+                  disabled={folderSync.syncing}
+                  leadingIcon={
+                    folderSync.syncing ? <Spinner size={14} /> : <RefreshCw size={14} />
+                  }
+                >
+                  Sync now
+                </Button>
+              ) : null}
+            </div>
+
+            {!folderSync.supported ? (
+              <p className="mt-3 rounded-xl bg-surface/60 p-3 text-[11px] leading-relaxed text-muted">
+                This browser cannot open folders. Folder sync works in Chromium-based browsers on
+                desktop and Android; use Upload files elsewhere.
+              </p>
+            ) : folderSync.folderName ? (
+              <div className="mt-3 rounded-xl bg-surface/60 p-3">
+                <p className="truncate text-xs font-medium text-ink">{folderSync.folderName}</p>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  {folderSync.lastSyncAt
+                    ? `Last checked ${formatFullDate(folderSync.lastSyncAt)}`
+                    : 'Not checked yet'}
+                </p>
+
+                {folderSync.progress &&
+                (folderSync.phase === 'scanning' ||
+                  folderSync.phase === 'uploading' ||
+                  folderSync.phase === 'done') ? (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-3 text-[11px]">
+                      <span className="min-w-0 truncate text-ink">{folderSync.progress.label}</span>
+                      <span className="shrink-0 tabular-nums text-muted">
+                        {folderSync.progress.pending > 0
+                          ? `${folderSync.progress.uploaded}/${folderSync.progress.pending}`
+                          : 'Up to date'}
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-line">
+                      <div
+                        className="h-full rounded-full bg-accent transition-[width] duration-300"
+                        style={{
+                          width: `${folderSync.progress.pending > 0 ? Math.round((folderSync.progress.uploaded / folderSync.progress.pending) * 100) : 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {folderSync.error ? (
+                  <p className="mt-2 text-[11px] leading-relaxed text-danger">{folderSync.error}</p>
+                ) : null}
+
+                {folderSync.phase === 'needs-permission' ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => void folderSync.chooseFolder()}>
+                      Reconnect folder
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void folderSync.disconnect()}>
+                      Stop syncing
+                    </Button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void folderSync.disconnect()}
+                    className="mt-3 text-[11px] font-medium text-muted hover:text-danger"
+                  >
+                    Stop syncing this folder
+                  </button>
+                )}
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-3"
+                onClick={() => void folderSync.chooseFolder()}
+                disabled={folderSync.syncing}
+              >
+                Choose folder
+              </Button>
+            )}
+
+            <p className="mt-3 text-[11px] leading-relaxed text-muted">
+              Checks when you open PicPocket, at most once a day. Uploads run while this tab stays
+              open; closing it stops the sync until your next visit.
+            </p>
           </div>
 
           {/* Channels */}

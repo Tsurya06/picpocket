@@ -26,6 +26,8 @@ export interface PhotoTimelineApi {
   /** Clears skip markers and re-reads history from the newest message. */
   resetScan: () => Promise<void>;
   removeItems: (ids: readonly string[]) => void;
+  /** Replace cached rows in place after an index rewrite. */
+  updateItems: (items: readonly MediaItem[]) => void;
   itemCount: number;
 }
 
@@ -134,8 +136,14 @@ export function usePhotoTimeline(options: {
       }),
     );
 
+    interface PackedGroup {
+      readonly indexMessageId: number;
+      readonly bundleMessageId: number;
+      readonly items: MediaItem[];
+    }
+
     const packedGroups = await Promise.all(
-      batch.bundles.map(async (ref): Promise<MediaItem[]> => {
+      batch.bundles.map(async (ref): Promise<PackedGroup | null> => {
         try {
           const indexDownload = await telegramService.downloadOriginal(
             batch.channelId,
@@ -146,13 +154,16 @@ export function usePhotoTimeline(options: {
             batch.channelId,
           );
           const parsed: unknown = JSON.parse(new TextDecoder().decode(plaintext));
-          if (!isMediaBundleIndex(parsed) || parsed.channelId !== batch.channelId) return [];
+          if (!isMediaBundleIndex(parsed) || parsed.channelId !== batch.channelId) return null;
 
-          return parsed.entries.map((entry): MediaItem => ({
-            id: `${batch.channelId}:b${ref.messageId}:${entry.origin.byteOffset}`,
+          // The id is keyed by the bundle message and slice, not by the index
+          // message. A rewritten index must update the same rows instead of
+          // creating a second copy of every surviving item.
+          const items = parsed.entries.map((entry): MediaItem => ({
+            id: `${batch.channelId}:b${parsed.bundleMessageId}:${entry.origin.byteOffset}`,
             channelId: batch.channelId,
             channelTitle: batch.channelTitle,
-            messageId: ref.messageId,
+            messageId: parsed.bundleMessageId,
             kind: entry.meta.kind,
             source: 'vault',
             takenAt: entry.meta.takenAt,
@@ -171,16 +182,33 @@ export function usePhotoTimeline(options: {
             },
             ...(entry.thumb ? { packedThumb: entry.thumb } : {}),
           }));
+          return {
+            indexMessageId: ref.messageId,
+            bundleMessageId: parsed.bundleMessageId,
+            items,
+          };
         } catch {
           // An index sealed with another key must not break the page.
-          return [];
+          return null;
         }
       }),
     );
 
+    // A bundle can temporarily have two indexes after an interrupted rewrite.
+    // The newest index wins; the older one must not resurrect deleted items or
+    // duplicate the survivors.
+    const newestIndex = new Map<number, PackedGroup>();
+    for (const group of packedGroups) {
+      if (!group) continue;
+      const current = newestIndex.get(group.bundleMessageId);
+      if (!current || group.indexMessageId > current.indexMessageId) {
+        newestIndex.set(group.bundleMessageId, group);
+      }
+    }
+
     const items = [
       ...decoded.filter((item): item is MediaItem => item !== null),
-      ...packedGroups.flat(),
+      ...[...newestIndex.values()].flatMap((group) => group.items),
     ];
     setSkipped(skippedRef.current.size);
     return items;
@@ -339,6 +367,13 @@ export function usePhotoTimeline(options: {
     [items],
   );
 
+  const updateItems = useCallback((updates: readonly MediaItem[]) => {
+    if (updates.length === 0) return;
+    void putCachedMedia(updates);
+    const byId = new Map(updates.map((item) => [item.id, item]));
+    setItems((current) => current.map((item) => byId.get(item.id) ?? item));
+  }, []);
+
   return {
     items,
     loading,
@@ -350,6 +385,7 @@ export function usePhotoTimeline(options: {
     reload,
     resetScan,
     removeItems,
+    updateItems,
     itemCount: items.length,
   };
 }

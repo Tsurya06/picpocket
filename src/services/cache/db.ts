@@ -91,6 +91,16 @@ export interface WhatsAppFileRow {
   uploadedAt: number;
 }
 
+/** A folder-sync file already uploaded, used for path/size/mtime dedupe. */
+export interface FolderSyncFileRow {
+  /** `${channelId}:${path}` */
+  id: string;
+  channelId: string;
+  path: string;
+  signature: string;
+  uploadedAt: number;
+}
+
 /** Latest WhatsApp backup per channel. */
 export interface WhatsAppBackupRow {
   channelId: string;
@@ -118,6 +128,7 @@ class PicPocketDatabase extends Dexie {
   channelKeys!: Table<ChannelKeyRow, string>;
   whatsappFiles!: Table<WhatsAppFileRow, [string, string]>;
   whatsappBackups!: Table<WhatsAppBackupRow, string>;
+  folderSyncFiles!: Table<FolderSyncFileRow, string>;
 
   constructor() {
     super('vault-photos');
@@ -141,6 +152,10 @@ class PicPocketDatabase extends Dexie {
     // Per-channel vault headers for cross-device decryption.
     this.version(4).stores({
       channelKeys: 'channelId',
+    });
+    // Local folder sync: one row per uploaded relative path.
+    this.version(5).stores({
+      folderSyncFiles: 'id, channelId, uploadedAt',
     });
   }
 }
@@ -328,6 +343,23 @@ export async function clearSealedSession(): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Folder sync manifest                                               */
+/* ------------------------------------------------------------------ */
+
+export async function getFolderSyncFiles(channelId: string): Promise<FolderSyncFileRow[]> {
+  return db.folderSyncFiles.where('channelId').equals(channelId).toArray();
+}
+
+export async function putFolderSyncFiles(rows: readonly FolderSyncFileRow[]): Promise<void> {
+  if (rows.length === 0) return;
+  await db.folderSyncFiles.bulkPut([...rows]);
+}
+
+export async function clearFolderSyncFiles(): Promise<void> {
+  await db.folderSyncFiles.clear();
+}
+
+/* ------------------------------------------------------------------ */
 /* WhatsApp sync manifest                                             */
 /* ------------------------------------------------------------------ */
 
@@ -366,7 +398,7 @@ export async function clearWhatsAppManifest(channelId: string): Promise<void> {
 export async function resetLocalData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.sessions, db.settings, db.thumbs, db.media, db.mediaIndex, db.avatars, db.channels, db.channelKeys, db.whatsappFiles, db.whatsappBackups],
+    [db.sessions, db.settings, db.thumbs, db.media, db.mediaIndex, db.avatars, db.channels, db.channelKeys, db.whatsappFiles, db.whatsappBackups, db.folderSyncFiles],
     async () => {
       await Promise.all([
         db.sessions.clear(),
@@ -379,6 +411,7 @@ export async function resetLocalData(): Promise<void> {
         db.channels.clear(),
         db.whatsappFiles.clear(),
         db.whatsappBackups.clear(),
+        db.folderSyncFiles.clear(),
       ]);
     },
   );

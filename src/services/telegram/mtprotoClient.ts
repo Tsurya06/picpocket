@@ -112,6 +112,7 @@ const MEDIA_PAGE_SIZE = 60;
 const MANIFEST_SCAN_LIMIT = 200;
 const HEADER_SCAN_LIMIT = 100;
 const RANGE_ALIGNMENT = 4096;
+const RANGE_CHUNK_BYTES = 1024 * 1024;
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
   bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -805,8 +806,13 @@ export class TelegramVaultService {
   }
 
   /**
-   * Downloads an exact byte slice of a packed bundle. mtcute requires offsets
-   * aligned to 4 KB, so the range is expanded and trimmed back afterwards.
+   * Downloads an exact byte slice of a packed bundle.
+   *
+   * `downloadChunk` is the only mtcute API that can fetch a sub-1 MB range.
+   * Telegram rejects it with LIMIT_INVALID unless each read starts on a 4 KB
+   * boundary, uses a 4 KB-multiple limit, and stays inside one 1 MB chunk of
+   * the file. The loop therefore stops at every 1 MB boundary and trims the
+   * extra bytes locally.
    */
   async downloadRange(
     channelId: string,
@@ -824,18 +830,51 @@ export class TelegramVaultService {
       throw new Error('This message does not contain a downloadable bundle.');
     }
 
-    const alignedOffset = Math.floor(byteOffset / RANGE_ALIGNMENT) * RANGE_ALIGNMENT;
-    const delta = byteOffset - alignedOffset;
-
     const bytes = await antiBan.run(
-      () =>
-        client.downloadAsBuffer(media, {
-          offset: alignedOffset,
-          limit: delta + byteLength,
-          progressCallback: (downloaded, total) =>
-            options?.onProgress?.(clampFraction(downloaded, total), downloaded),
-          ...(options?.signal ? { abortSignal: options.signal } : {}),
-        }),
+      async () => {
+        const output = new Uint8Array(byteLength);
+        const fileSize = media.fileSize;
+        let written = 0;
+        let cursor = Math.floor(byteOffset / RANGE_ALIGNMENT) * RANGE_ALIGNMENT;
+        const end = byteOffset + byteLength;
+
+        while (written < byteLength) {
+          if (fileSize !== undefined && cursor >= fileSize) break;
+          const remaining = end - cursor;
+          const nextChunk = (Math.floor(cursor / RANGE_CHUNK_BYTES) + 1) * RANGE_CHUNK_BYTES;
+          const withinChunk = nextChunk - cursor;
+          const desired = Math.ceil(remaining / RANGE_ALIGNMENT) * RANGE_ALIGNMENT;
+          const limit = Math.min(withinChunk, desired);
+          const part = await client.downloadChunk({
+            location: media,
+            offset: cursor,
+            limit,
+            ...(options?.signal ? { abortSignal: options.signal } : {}),
+          });
+          if (part.byteLength === 0) break;
+
+          const from = Math.max(byteOffset, cursor);
+          const to = Math.min(end, cursor + part.byteLength);
+          if (to > from) {
+            output.set(part.subarray(from - cursor, to - cursor), written);
+            written += to - from;
+          }
+          if (
+            fileSize !== undefined &&
+            cursor + limit <= fileSize &&
+            part.byteLength < limit
+          ) {
+            throw new Error('The bundle slice was shorter than expected.');
+          }
+          cursor += limit;
+          options?.onProgress?.(clampFraction(written, byteLength), written);
+        }
+
+        if (written !== byteLength) {
+          throw new Error('The bundle slice was shorter than expected.');
+        }
+        return output;
+      },
       {
         kind: 'read',
         ...(options?.signal ? { signal: options.signal } : {}),
@@ -843,12 +882,7 @@ export class TelegramVaultService {
       },
     );
 
-    const slice = bytes.subarray(delta, delta + byteLength);
-    if (slice.byteLength !== byteLength) {
-      throw new Error('The bundle slice was shorter than expected.');
-    }
-
-    return { bytes: toArrayBuffer(slice), mimeType: mimeFor(media), encrypted: true };
+    return { bytes: toArrayBuffer(bytes), mimeType: mimeFor(media), encrypted: true };
   }
 
   /**

@@ -19,10 +19,12 @@ import { useTelegramAuth } from './hooks/useTelegramAuth';
 import { useChannelSelector } from './hooks/useChannelSelector';
 import { usePhotoTimeline } from './hooks/usePhotoTimeline';
 import { useUploader } from './hooks/useUploader';
+import { useFolderSync } from './hooks/useFolderSync';
 import { useChannelVaults } from './hooks/useChannelVaults';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { clearFullMediaCache, getFullMediaUrl } from './hooks/useFullMedia';
-import { describeError, telegramService } from './services/telegram/mtprotoClient';
+import { describeError } from './services/telegram/mtprotoClient';
+import { deleteMediaItems } from './services/media/deletion';
 import { filterMedia, groupTimeline } from './lib/timeline';
 import { formatBytes } from './lib/format';
 import { AuthScreen } from './components/AuthScreen';
@@ -161,6 +163,14 @@ export default function App() {
   );
 
   const targetChannelId = viewChannelId ?? channels.selectedIds[0] ?? null;
+
+  const folderSync = useFolderSync({
+    enabled: ready,
+    channelId: targetChannelId,
+    encrypt: encryptUploads,
+    onUploaded: handleUploadsFinished,
+  });
+
   const backupChannelTitle =
     channels.channels.find((channel) => channel.id === backupChannelId)?.title ??
     (backupChannelId ? 'Selected channel' : null);
@@ -341,30 +351,9 @@ export default function App() {
     setBulkError(null);
     setBulkBusy(`Deleting ${selectedItems.length}…`);
     try {
-      const bundleIds = new Set(
-        selectedItems.flatMap((entry) => (entry.packed ? [entry.packed.bundleMessageId] : [])),
-      );
-      const targets = visibleItems.filter(
-        (entry) =>
-          selectedIds.has(entry.id) ||
-          (entry.packed !== undefined && bundleIds.has(entry.packed.bundleMessageId)),
-      );
-
-      const byChannel = new Map<string, number[]>();
-      for (const entry of targets) {
-        const ids = entry.packed
-          ? [entry.packed.bundleMessageId, entry.packed.bundleIndexMessageId]
-          : entry.thumbMessageId !== undefined
-            ? [entry.messageId, entry.thumbMessageId]
-            : [entry.messageId];
-        byChannel.set(entry.channelId, [...(byChannel.get(entry.channelId) ?? []), ...ids]);
-      }
-
-      for (const [channelId, ids] of byChannel) {
-        await telegramService.deleteMessages(channelId, [...new Set(ids)]);
-      }
-
-      timeline.removeItems(targets.map((entry) => entry.id));
+      const result = await deleteMediaItems(selectedItems, visibleItems);
+      timeline.removeItems(result.removeIds);
+      timeline.updateItems(result.updatedItems);
       setLightboxId(null);
       setBulkBusy(null);
       clearSelection();
@@ -377,36 +366,18 @@ export default function App() {
 
   const handleDelete = useCallback(
     async (item: MediaItem) => {
-      if (item.packed) {
-        try {
-          await telegramService.deleteMessages(item.channelId, [
-            item.packed.bundleMessageId,
-            item.packed.bundleIndexMessageId,
-          ]);
-        } catch (caught) {
-          throw new Error(describeError(caught));
-        }
-        const bundleId = item.packed.bundleMessageId;
-        const siblings = visibleItems.filter(
-          (entry) => entry.packed?.bundleMessageId === bundleId,
-        );
-        timeline.removeItems(siblings.map((entry) => entry.id));
-        setLightboxId(null);
-        return;
-      }
-
-      const ids =
-        item.thumbMessageId !== undefined
-          ? [item.messageId, item.thumbMessageId]
-          : [item.messageId];
+      let result;
       try {
-        await telegramService.deleteMessages(item.channelId, ids);
+        result = await deleteMediaItems([item], visibleItems);
       } catch (caught) {
         throw new Error(describeError(caught));
       }
 
-      const remaining = visibleItems.filter((entry) => entry.id !== item.id);
-      timeline.removeItems([item.id]);
+      timeline.removeItems(result.removeIds);
+      timeline.updateItems(result.updatedItems);
+
+      const removed = new Set(result.removeIds);
+      const remaining = visibleItems.filter((entry) => !removed.has(entry.id));
       if (remaining.length === 0) {
         setLightboxId(null);
         return;
@@ -840,6 +811,7 @@ export default function App() {
         onToggleTheme={toggleTheme}
         encryptUploads={encryptUploads}
         onToggleEncrypt={toggleEncrypt}
+        folderSync={folderSync}
         onManageChannels={() => {
           setSettingsOpen(false);
           setSelectorOpen(true);
