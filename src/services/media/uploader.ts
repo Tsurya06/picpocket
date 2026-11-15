@@ -97,24 +97,33 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 
+const HEIC_NAME = /\.(?:heic|heif)$/i;
+
 const buildMeta = (
   file: File,
   prepared: PreparedMedia,
   caption: string | undefined,
-): VaultMetadata => ({
-  v: 1,
-  mid: randomId(),
-  name: trimName(file.name),
-  mime: file.type || 'application/octet-stream',
-  kind: prepared.kind,
-  width: prepared.width,
-  height: prepared.height,
-  takenAt: prepared.takenAt,
-  size: prepared.original.byteLength,
-  duration: prepared.duration,
-  caption: trimCaption(caption),
-  thumbMime: prepared.thumb?.mime,
-});
+): VaultMetadata => {
+  // The worker transcodes HEIC to JPEG; the stored name must match the bytes.
+  const name =
+    prepared.mime === 'image/jpeg' && HEIC_NAME.test(file.name)
+      ? file.name.replace(HEIC_NAME, '.jpg')
+      : file.name;
+  return {
+    v: 1,
+    mid: randomId(),
+    name: trimName(name),
+    mime: prepared.mime || file.type || 'application/octet-stream',
+    kind: prepared.kind,
+    width: prepared.width,
+    height: prepared.height,
+    takenAt: prepared.takenAt,
+    size: prepared.original.byteLength,
+    duration: prepared.duration,
+    caption: trimCaption(caption),
+    thumbMime: prepared.thumb?.mime,
+  };
+};
 
 /**
  * Uploads one file to one channel.

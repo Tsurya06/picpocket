@@ -135,6 +135,11 @@ class CryptoWorkerClient {
     return this.request('packBundle', { items: [...items], ...(channelId ? { channelId } : {}) });
   }
 
+  /** Transcodes HEIC/HEIF bytes to JPEG inside the worker. */
+  convertHeic(data: ArrayBuffer): Promise<{ data: ArrayBuffer; mime: string }> {
+    return this.request('convertHeic', { data });
+  }
+
   /** Decrypts exactly one packed slice (`[IV][ciphertext+tag]`). */
   decryptPacked(data: ArrayBuffer, channelId?: string): Promise<ArrayBuffer> {
     return this.request('decryptPacked', { data, ...(channelId ? { channelId } : {}) }).then(

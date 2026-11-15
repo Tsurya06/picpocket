@@ -20,6 +20,7 @@ import {
 } from './captions';
 import { antiBan } from './antiBan';
 import {
+  CHANNEL_HEADER_PREFIX,
   channelHeaderCaption,
   parseChannelHeader,
   type ChannelHeader,
@@ -723,6 +724,36 @@ export class TelegramVaultService {
   ): Promise<{ readonly messageId: number; readonly header: ChannelHeader } | null> {
     const headers = await this.findChannelHeaders(channelId);
     return headers[0] ?? null;
+  }
+
+  /**
+   * Finds any vault header in the account's chats. This is what lets a brand
+   * new device discover an existing vault after sign-in: the header carries
+   * the salt and verifier, so the unlock screen can be shown instead of the
+   * create-vault screen. Telegram-side search avoids scanning every channel's
+   * history one request at a time.
+   */
+  async findVaultHeader(): Promise<{
+    readonly channelId: string;
+    readonly header: ChannelHeader;
+  } | null> {
+    const client = this.requireClient();
+    return antiBan.run(
+      async () => {
+        const results = await client.searchGlobal({
+          // Telegram tokenises at punctuation, so search the bare marker.
+          query: CHANNEL_HEADER_PREFIX.replace(/:$/, ''),
+          limit: 20,
+        });
+        for (const message of results) {
+          const header = parseChannelHeader(message.text);
+          if (!header) continue;
+          return { channelId: String(message.chat.id), header };
+        }
+        return null;
+      },
+      { kind: 'read' },
+    );
   }
 
   /** Publishes the channel vault header so other devices can derive its key. */

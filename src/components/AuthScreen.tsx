@@ -196,6 +196,7 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
   const [resetArmed, setResetArmed] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const error = localError ?? auth.error;
@@ -355,8 +356,8 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
                 passphrase.
               </p>
               <div className="mt-3 flex gap-2">
-                <Button size="sm" variant="danger" onClick={() => void auth.reset()}>
-                  Reset everything
+                <Button size="sm" variant="danger" onClick={() => void auth.startOver()}>
+                  Start over
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setResetArmed(false)}>
                   Cancel
@@ -369,7 +370,7 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
               onClick={() => setResetArmed(true)}
               className="text-xs font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
             >
-              Forgot passphrase? Sign in with a different account
+              Forgot passphrase? Start over
             </button>
           )}
         </div>
@@ -433,6 +434,37 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
             {auth.busy ? 'Securing session…' : creating ? 'Create vault & finish' : 'Unlock & finish'}
           </Button>
         </form>
+
+        {!creating ? (
+          <div className="mt-6 text-center">
+            {forgotOpen ? (
+              <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-left">
+                <p className="text-sm font-medium text-ink">No passphrase, no recovery</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted">
+                  Nothing is stored anywhere that can recover your passphrase. Files already
+                  encrypted with the old vault stay in Telegram but cannot be opened without it.
+                  You can start over with a new passphrase and upload new media from this device.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <Button size="sm" variant="danger" onClick={() => void auth.startOver()}>
+                    Start over
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setForgotOpen(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setForgotOpen(true)}
+                className="text-xs font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
+              >
+                Forgot passphrase?
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>,
     );
   }

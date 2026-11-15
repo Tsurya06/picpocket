@@ -58,6 +58,8 @@ export interface AuthController extends AuthState {
   unlock: (passphrase: string) => Promise<void>;
   lock: () => Promise<void>;
   reset: () => Promise<void>;
+  /** Forgot-passphrase path: wipe local state and start a brand new vault. */
+  startOver: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -89,6 +91,8 @@ export function useTelegramAuth(): AuthController {
   const profileRef = useRef<VaultProfile | null>(null);
   const pendingSessionRef = useRef<string | null>(null);
   const credentialsRef = useRef<TelegramCredentials | null>(null);
+  /** Set after "forgot passphrase" so a remote header cannot force unlock mode. */
+  const skipRemoteVaultRef = useRef(false);
   /** Invalidates callbacks from a login attempt that was cancelled or replaced. */
   const loginAttemptRef = useRef(0);
 
@@ -167,7 +171,31 @@ export function useTelegramAuth(): AuthController {
 
         if (loginAttemptRef.current !== attempt) return;
         pendingSessionRef.current = session;
-        const profile = profileRef.current ?? (await loadVaultProfile()) ?? null;
+        let profile = profileRef.current ?? (await loadVaultProfile()) ?? null;
+
+        // A new device has no local profile yet, but the account's channels
+        // may already publish a vault header. Adopt it so sign-in shows the
+        // unlock screen instead of asking the user to create a second vault.
+        if (!profile && !skipRemoteVaultRef.current) {
+          try {
+            const found = await telegramService.findVaultHeader();
+            if (loginAttemptRef.current !== attempt) return;
+            if (found) {
+              profile = {
+                salt: found.header.saltB64,
+                verifier: found.header.verifierB64,
+                iterations: 600_000,
+                createdAt: Date.now(),
+              };
+              profileRef.current = profile;
+              await saveVaultProfile(profile);
+            }
+          } catch {
+            // No header or no search permission: fall back to create mode.
+          }
+          if (loginAttemptRef.current !== attempt) return;
+        }
+
         profileRef.current = profile;
         patch({
           status: 'vault',
@@ -327,6 +355,20 @@ export function useTelegramAuth(): AuthController {
     profileRef.current = null;
     pendingSessionRef.current = null;
     credentialsRef.current = null;
+    skipRemoteVaultRef.current = false;
+    setState({ ...initialState, status: 'onboarding', vaultMode: 'create' });
+  }, []);
+
+  const startOver = useCallback(async () => {
+    await cryptoClient.lock();
+    telegramService.dispose();
+    await resetLocalData();
+    profileRef.current = null;
+    pendingSessionRef.current = null;
+    credentialsRef.current = null;
+    // The old vault header stays in Telegram, so ignore it on the next login
+    // and let the user create a new passphrase from scratch.
+    skipRemoteVaultRef.current = true;
     setState({ ...initialState, status: 'onboarding', vaultMode: 'create' });
   }, []);
 
@@ -342,6 +384,7 @@ export function useTelegramAuth(): AuthController {
     unlock,
     lock,
     reset,
+    startOver,
     clearError,
   };
 }

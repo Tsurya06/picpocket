@@ -4,6 +4,8 @@ import { cryptoClient } from '../crypto/cryptoClient';
 export interface PreparedMedia {
   /** Sanitised origin bytes (EXIF/XMP stripped for images). */
   readonly original: ArrayBuffer;
+  /** Content type of `original`; HEIC is transcoded to JPEG by the worker. */
+  readonly mime: string;
   readonly thumb: { readonly bytes: ArrayBuffer; readonly mime: string } | null;
   readonly width: number;
   readonly height: number;
@@ -108,6 +110,7 @@ export async function prepareImageFile(file: File): Promise<PreparedMedia> {
   });
   return {
     original: result.stripped,
+    mime: result.mime,
     thumb: result.thumb
       ? { bytes: result.thumb, mime: result.thumbMime ?? 'image/webp' }
       : null,
@@ -134,6 +137,7 @@ export async function prepareVideoFile(file: File): Promise<PreparedMedia> {
 
   return {
     original,
+    mime: file.type || 'video/mp4',
     thumb,
     width: probe.width,
     height: probe.height,
@@ -152,6 +156,7 @@ export async function prepareVideoFile(file: File): Promise<PreparedMedia> {
 export async function prepareGenericFile(file: File): Promise<PreparedMedia> {
   return {
     original: await file.arrayBuffer(),
+    mime: file.type || 'application/octet-stream',
     thumb: null,
     width: 0,
     height: 0,
@@ -161,8 +166,15 @@ export async function prepareGenericFile(file: File): Promise<PreparedMedia> {
   };
 }
 
+const IMAGE_EXTENSION = /\.(?:avif|bmp|gif|heic|heif|jpe?g|png|tiff?|webp)$/i;
+const VIDEO_EXTENSION = /\.(?:3gp|avi|m4v|mkv|mov|mp4|mpe?g|ogv|webm)$/i;
+
 export async function prepareFile(file: File): Promise<PreparedMedia> {
   if (file.type.startsWith('video/')) return prepareVideoFile(file);
   if (file.type.startsWith('image/')) return prepareImageFile(file);
+  // Some share sheets and file pickers hand over media with an empty MIME
+  // type; fall back to the extension so it is still treated as media.
+  if (IMAGE_EXTENSION.test(file.name)) return prepareImageFile(file);
+  if (VIDEO_EXTENSION.test(file.name)) return prepareVideoFile(file);
   return prepareGenericFile(file);
 }

@@ -16,6 +16,7 @@
     "@mtcute/web": "^0.32.7",
     "@tanstack/react-virtual": "^3.14.26",
     "dexie": "^4.0.11",
+    "heic-decode": "^2.1.0",
     "lucide-react": "^0.468.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

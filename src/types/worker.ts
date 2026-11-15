@@ -30,6 +30,8 @@ export interface PrepareMediaPayload {
 export interface PrepareMediaResponse {
   /** Original bytes with EXIF/GPS/XMP stripped (or passed through if none). */
   readonly stripped: ArrayBuffer;
+  /** Content type of `stripped` (HEIC is transcoded to JPEG for previews). */
+  readonly mime: string;
   /** Compressed WebP preview, already metadata-free. */
   readonly thumb: ArrayBuffer | null;
   /** Actual encoding returned by the canvas (WebP, or PNG on older Safari). */
@@ -109,6 +111,16 @@ export interface UnlockChannelPayload extends ChannelKeyPayload {
   readonly passphrase: string;
 }
 
+export interface ConvertHeicPayload {
+  readonly data: ArrayBuffer;
+}
+
+export interface ConvertHeicResponse {
+  /** JPEG bytes rendered from the HEIC container. */
+  readonly data: ArrayBuffer;
+  readonly mime: string;
+}
+
 export interface ChannelKeyResponse {
   /** True when the primary vault key already opens this channel. */
   readonly matched: boolean;
@@ -127,6 +139,8 @@ export interface RequestMap {
   encryptThumb: { payload: EncryptThumbPayload; response: BytesResponse };
   packBundle: { payload: PackBundlePayload; response: PackBundleResponse };
   decryptPacked: { payload: DecryptPackedPayload; response: BytesResponse };
+  /** Transcodes an HEIC image to JPEG so every browser can display it. */
+  convertHeic: { payload: ConvertHeicPayload; response: ConvertHeicResponse };
   /** Try the unlocked primary passphrase against a channel header. */
   syncChannelHeader: { payload: ChannelKeyPayload; response: ChannelKeyResponse };
   /** Derive and cache a channel key from that channel's own passphrase. */

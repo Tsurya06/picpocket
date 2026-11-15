@@ -551,21 +551,75 @@ async function makeThumb(bitmap: ImageBitmap): Promise<ThumbResult | null> {
 }
 
 const IMAGE_MIME = /^image\//;
+const HEIC_MIME = /^image\/(?:hei[cf]|heic-sequence|heif-sequence)$/i;
+const HEIC_NAME = /\.(?:heic|heif)$/i;
+
+const isHeic = (mime: string, name: string): boolean =>
+  HEIC_MIME.test(mime) || HEIC_NAME.test(name);
+
+/**
+ * Chromium and Firefox cannot decode HEIC in `createImageBitmap`, so HEIC
+ * uploads are transcoded to JPEG in the worker before they are sealed. That
+ * keeps the original HEIC container out of the vault but makes every item
+ * previewable everywhere.
+ */
+async function heicToJpeg(data: ArrayBuffer): Promise<{
+  bytes: ArrayBuffer;
+  width: number;
+  height: number;
+}> {
+  // Loaded on demand: the WASM decoder is a couple of megabytes and most
+  // vaults never contain a HEIC file.
+  const { default: decodeHeic } = await import('heic-decode');
+  const decoded = await decodeHeic({ buffer: new Uint8Array(data) });
+  const canvas = new OffscreenCanvas(decoded.width, decoded.height);
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create a canvas to convert this HEIC image.');
+  context.putImageData(
+    new ImageData(new Uint8ClampedArray(decoded.data), decoded.width, decoded.height),
+    0,
+    0,
+  );
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+  return {
+    bytes: await blob.arrayBuffer(),
+    width: decoded.width,
+    height: decoded.height,
+  };
+}
 
 async function prepareMedia(payload: PrepareMediaPayload): Promise<PrepareMediaResponse> {
   const original = new Uint8Array(payload.data);
-  if (!IMAGE_MIME.test(payload.mime)) {
+  if (!IMAGE_MIME.test(payload.mime) && !isHeic(payload.mime, payload.name)) {
     throw new Error('Only images can be prepared in the crypto worker.');
   }
 
-  const stripped = sanitize(original, payload.mime.toLowerCase());
+  let source = original;
+  let mime = payload.mime || 'application/octet-stream';
+  let convertedWidth = 0;
+  let convertedHeight = 0;
+
+  if (isHeic(payload.mime, payload.name)) {
+    try {
+      const converted = await heicToJpeg(payload.data);
+      source = new Uint8Array(converted.bytes);
+      mime = 'image/jpeg';
+      convertedWidth = converted.width;
+      convertedHeight = converted.height;
+    } catch {
+      // Keep the original HEIC bytes rather than failing the upload; the
+      // viewer can still transcode it on demand from the decrypted original.
+    }
+  }
+
+  const stripped = sanitize(source, mime.toLowerCase());
   let thumb: ThumbResult | null = null;
-  let width = 0;
-  let height = 0;
+  let width = convertedWidth;
+  let height = convertedHeight;
 
   try {
     const bitmap = await createImageBitmap(
-      new Blob([stripped as unknown as BlobPart], { type: payload.mime }),
+      new Blob([stripped as unknown as BlobPart], { type: mime }),
       {
         imageOrientation: 'from-image',
       },
@@ -575,13 +629,14 @@ async function prepareMedia(payload: PrepareMediaPayload): Promise<PrepareMediaR
     thumb = await makeThumb(bitmap);
     bitmap.close();
   } catch {
-    // HEIC and other unsupported formats: keep the upload, skip the preview.
+    // Unsupported formats keep the upload but skip the preview.
   }
 
   const takenAt = parseExifDate(original) ?? payload.lastModified;
 
   return {
     stripped: stripped.buffer as ArrayBuffer,
+    mime,
     thumb: thumb?.bytes ?? null,
     thumbMime: thumb?.mime ?? null,
     width: thumb?.width ?? width,
@@ -590,6 +645,18 @@ async function prepareMedia(payload: PrepareMediaPayload): Promise<PrepareMediaR
     takenAt: Number.isFinite(takenAt) && takenAt > 0 ? takenAt : Date.now(),
     strippedBytes: original.byteLength - stripped.byteLength,
   };
+}
+
+async function convertHeic(payload: { readonly data: ArrayBuffer }): Promise<{
+  data: ArrayBuffer;
+  mime: string;
+}> {
+  try {
+    const converted = await heicToJpeg(payload.data);
+    return { data: converted.bytes, mime: 'image/jpeg' };
+  } catch {
+    throw new Error('This HEIC image could not be decoded in this browser.');
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -623,6 +690,7 @@ const handlers: { [K in WorkerRequestType]: (payload: RequestMap[K]['payload']) 
   decryptPacked: async (payload: DecryptPackedPayload) => ({
     data: await decryptPacked(new Uint8Array(payload.data), payload.channelId),
   }),
+  convertHeic: (payload) => convertHeic(payload),
   syncChannelHeader: (payload) => syncChannelHeader(payload),
   unlockChannel: (payload) => unlockChannel(payload),
 };

@@ -30,6 +30,8 @@ interface CachedMedia {
  * revoked when evicted or when the vault locks.
  */
 const MAX_CACHED_ITEMS = 24;
+const HEIC_MIME = /^image\/(?:hei[cf]|heic-sequence|heif-sequence)$/i;
+const HEIC_NAME = /\.(?:heic|heif)$/i;
 const cache = new Map<string, CachedMedia>();
 const inflight = new Map<string, Promise<CachedMedia>>();
 
@@ -85,7 +87,23 @@ async function load(item: MediaItem, onProgress?: (fraction: number) => void): P
 
     const mimeType =
       item.source === 'vault' ? item.mimeType || 'application/octet-stream' : download.mimeType;
-    const blob = new Blob([plaintext], { type: mimeType });
+
+    // Basket-case browsers cannot render HEIC, and items uploaded before the
+    // worker transcoded them still carry their original container. Convert on
+    // read so those existing items keep working too.
+    let bytes = plaintext;
+    let displayMime = mimeType;
+    if (HEIC_MIME.test(mimeType) || HEIC_NAME.test(item.fileName)) {
+      try {
+        const converted = await cryptoClient.convertHeic(plaintext);
+        bytes = converted.data;
+        displayMime = converted.mime;
+      } catch {
+        // Fall through to the original bytes; the viewer shows its error card.
+      }
+    }
+
+    const blob = new Blob([bytes], { type: displayMime });
     const value: CachedMedia = { url: URL.createObjectURL(blob), mimeType: blob.type };
     touch(item.id, value);
     return value;
