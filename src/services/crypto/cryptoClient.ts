@@ -1,4 +1,5 @@
 import type { RequestMap, WorkerRequest, WorkerRequestType, WorkerResponse } from '../../types/worker';
+import type { PassphraseWrap, VaultRecovery } from '../../types/media';
 
 type Pending = {
   resolve: (value: RequestMap[WorkerRequestType]['response']) => void;
@@ -59,14 +60,15 @@ class CryptoWorkerClient {
     return this.unlocked;
   }
 
-  async unlock(passphrase: string, options?: { salt?: string; verifier?: string }): Promise<{
-    salt: string;
-    verifier: string;
-  }> {
+  async unlock(
+    passphrase: string,
+    options?: { salt?: string; verifier?: string; passphraseWrap?: PassphraseWrap },
+  ): Promise<{ salt: string; verifier: string }> {
     const result = await this.request('unlock', {
       passphrase,
       salt: options?.salt,
       verifier: options?.verifier,
+      passphraseWrap: options?.passphraseWrap,
     });
     this.unlocked = true;
     return result;
@@ -75,6 +77,33 @@ class CryptoWorkerClient {
   async lock(): Promise<void> {
     await this.request('lock', undefined);
     this.unlocked = false;
+  }
+
+  /** Creates a 24-word recovery phrase for the currently unlocked passphrase. */
+  async createRecovery(salt: string): Promise<{ words: string; recovery: VaultRecovery }> {
+    return this.request('createRecovery', { salt });
+  }
+
+  /** Unlocks the vault with a 24-word phrase instead of the passphrase. */
+  async unlockWithRecovery(
+    words: string,
+    recovery: VaultRecovery,
+    salt: string,
+    verifier: string,
+  ): Promise<{ salt: string; verifier: string }> {
+    const result = await this.request('unlockWithRecovery', {
+      words,
+      recovery,
+      salt,
+      verifier,
+    });
+    this.unlocked = true;
+    return result;
+  }
+
+  async wrapPassphrase(passphrase: string): Promise<PassphraseWrap> {
+    const result = await this.request('wrapPassphrase', { passphrase });
+    return result.passphraseWrap;
   }
 
   prepareMedia(input: {

@@ -1,4 +1,8 @@
-import type { FolderSyncConfig, FolderSyncProgress } from '../../types/folderSync';
+import type {
+  FolderLibraryEntry,
+  FolderSyncConfig,
+  FolderSyncProgress,
+} from '../../types/folderSync';
 import { getFolderSyncFiles, getSetting, putFolderSyncFiles, setSetting } from '../cache/db';
 import { uploadBatch } from './uploader';
 
@@ -49,6 +53,12 @@ export interface FolderSyncResult {
   readonly uploaded: number;
   readonly failed: number;
   readonly completedAt: number;
+  readonly failures: readonly string[];
+}
+
+export interface FolderUploadResult {
+  readonly uploaded: number;
+  readonly failed: number;
   readonly failures: readonly string[];
 }
 
@@ -116,6 +126,25 @@ export async function scanFolder(
   return files;
 }
 
+/** Scans the folder and marks each file that is already in the vault. */
+export async function scanFolderLibrary(
+  config: FolderSyncConfig,
+  channelId: string,
+): Promise<FolderLibraryEntry[]> {
+  if ((await folderPermission(config.handle)) !== 'granted') {
+    throw new FolderPermissionError();
+  }
+  const [files, rows] = await Promise.all([
+    scanFolder(config.handle),
+    getFolderSyncFiles(channelId),
+  ]);
+  const known = new Map(rows.map((row) => [row.path, row.signature]));
+  return files.map((entry) => ({
+    ...entry,
+    synced: known.get(entry.path) === entry.signature,
+  }));
+}
+
 export async function folderPermission(
   directory: FileSystemDirectoryHandle,
 ): Promise<PermissionState> {
@@ -149,6 +178,7 @@ export async function loadFolderConfig(): Promise<FolderSyncConfig | null> {
     name: candidate.name,
     handle: candidate.handle,
     lastSyncAt: typeof candidate.lastSyncAt === 'number' ? candidate.lastSyncAt : null,
+    autoSync: candidate.autoSync !== false,
     savedAt: typeof candidate.savedAt === 'number' ? candidate.savedAt : Date.now(),
   };
 }
@@ -181,6 +211,7 @@ export async function pickFolder(): Promise<FolderSyncConfig> {
     name: handle.name,
     handle,
     lastSyncAt: null,
+    autoSync: true,
     savedAt: Date.now(),
   };
   await saveFolderConfig(config);
@@ -212,8 +243,6 @@ export async function syncFolder(
   const known = new Map(rows.map((row) => [row.path, row.signature]));
   const pending = files.filter((entry) => known.get(entry.path) !== entry.signature);
   const bytes = pending.reduce((sum, entry) => sum + entry.file.size, 0);
-  const failures: string[] = [];
-  let uploaded = 0;
 
   onProgress({
     phase: pending.length > 0 ? 'uploading' : 'done',
@@ -228,8 +257,52 @@ export async function syncFolder(
     bytes,
   });
 
-  for (let start = 0; start < pending.length; start += BATCH_SIZE) {
-    const batch = pending.slice(start, start + BATCH_SIZE);
+  const uploadedResult = await uploadScannedEntries({
+    channelId,
+    encrypt,
+    entries: pending,
+    found: files.length,
+    pending: pending.length,
+    bytes,
+    onProgress,
+  });
+
+  const completedAt = Date.now();
+  await saveFolderConfig({ ...config, lastSyncAt: completedAt });
+  return {
+    found: files.length,
+    pending: pending.length,
+    uploaded: uploadedResult.uploaded,
+    failed: uploadedResult.failed,
+    completedAt,
+    failures: uploadedResult.failures,
+  };
+}
+
+interface UploadScannedEntriesInput {
+  readonly channelId: string;
+  readonly encrypt: boolean;
+  readonly entries: readonly ScannedFolderFile[];
+  readonly found: number;
+  readonly pending: number;
+  readonly bytes: number;
+  readonly onProgress: (progress: FolderSyncProgress) => void;
+}
+
+async function uploadScannedEntries({
+  channelId,
+  encrypt,
+  entries,
+  found,
+  pending,
+  bytes,
+  onProgress,
+}: UploadScannedEntriesInput): Promise<FolderUploadResult> {
+  const failures: string[] = [];
+  let uploaded = 0;
+
+  for (let start = 0; start < entries.length; start += BATCH_SIZE) {
+    const batch = entries.slice(start, start + BATCH_SIZE);
     const byFile = new Map(batch.map((entry) => [entry.file, entry]));
     const results = await uploadBatch({
       channelId,
@@ -239,8 +312,8 @@ export async function syncFolder(
         onProgress({
           phase: 'uploading',
           label: `Uploading ${file.name}`,
-          found: files.length,
-          pending: pending.length,
+          found,
+          pending,
           uploaded,
           failed: failures.length,
           bytes,
@@ -250,8 +323,8 @@ export async function syncFolder(
         onProgress({
           phase: 'uploading',
           label,
-          found: files.length,
-          pending: pending.length,
+          found,
+          pending,
           uploaded,
           failed: failures.length,
           bytes,
@@ -280,27 +353,42 @@ export async function syncFolder(
     await putFolderSyncFiles(completed);
     uploaded += completed.length;
     onProgress({
-      phase: start + batch.length >= pending.length ? 'done' : 'uploading',
+      phase: start + batch.length >= entries.length ? 'done' : 'uploading',
       label:
-        start + batch.length >= pending.length
+        start + batch.length >= entries.length
           ? `Synced ${uploaded} item${uploaded === 1 ? '' : 's'}${failures.length > 0 ? `, ${failures.length} failed` : ''}`
-          : `Uploaded ${uploaded} of ${pending.length}`,
-      found: files.length,
-      pending: pending.length,
+          : `Uploaded ${uploaded} of ${pending}`,
+      found,
+      pending,
       uploaded,
       failed: failures.length,
       bytes,
     });
   }
 
-  const completedAt = Date.now();
-  await saveFolderConfig({ ...config, lastSyncAt: completedAt });
-  return {
-    found: files.length,
+  return { uploaded, failed: failures.length, failures };
+}
+
+/** Uploads only the files the user picked in the folder browser. */
+export async function uploadFolderEntries(
+  config: FolderSyncConfig,
+  channelId: string,
+  encrypt: boolean,
+  entries: readonly FolderLibraryEntry[],
+): Promise<FolderUploadResult> {
+  if ((await folderPermission(config.handle)) !== 'granted') {
+    throw new FolderPermissionError();
+  }
+
+  const pending = entries.filter((entry) => !entry.synced);
+  const bytes = pending.reduce((sum, entry) => sum + entry.file.size, 0);
+  return uploadScannedEntries({
+    channelId,
+    encrypt,
+    entries: pending,
+    found: entries.length,
     pending: pending.length,
-    uploaded,
-    failed: failures.length,
-    completedAt,
-    failures,
-  };
+    bytes,
+    onProgress: () => undefined,
+  });
 }

@@ -3,6 +3,7 @@ import {
   Download,
   FolderLock,
   Images,
+  ListChecks,
   Lock,
   Plus,
   RefreshCw,
@@ -30,6 +31,7 @@ import { formatBytes } from './lib/format';
 import { AuthScreen } from './components/AuthScreen';
 import { AppNav, type AppView } from './components/AppNav';
 import { TopBar } from './components/TopBar';
+import { DateFilter } from './components/DateFilter';
 import { WhatsAppBackupView } from './components/WhatsAppBackupView';
 import { PhotoGrid } from './components/PhotoGrid';
 import { Lightbox } from './components/Lightbox';
@@ -37,6 +39,7 @@ import { ChannelSelectorModal } from './components/ChannelSelectorModal';
 import { ChannelPickerModal } from './components/ChannelPickerModal';
 import { ChannelVaultBanner } from './components/ChannelVaultBanner';
 import { SettingsModal } from './components/SettingsModal';
+import { FolderBrowserModal } from './components/FolderBrowserModal';
 import { UploadPill } from './components/UploadPill';
 import { Button } from './components/ui/Button';
 import { SkeletonGrid, Spinner } from './components/ui/Spinner';
@@ -44,6 +47,7 @@ import { pruneShareCache, readSharedPayload } from './services/whatsapp/shareTar
 
 const ENCRYPT_PREFERENCE_KEY = 'vaultphotos.encrypt';
 const BACKUP_CHANNEL_KEY = 'picpocket.backupChannel';
+const MAX_SELECTED_FILES = 100;
 
 const readBackupChannel = (): string | null => {
   try {
@@ -104,10 +108,13 @@ export default function App() {
 
   const [viewChannelId, setViewChannelId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [backupPickerOpen, setBackupPickerOpen] = useState(false);
   const [backupChannelId, setBackupChannelId] = useState<string | null>(readBackupChannel);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [lightboxId, setLightboxId] = useState<string | null>(null);
   const [encryptUploads, setEncryptUploads] = useState(readEncryptPreference);
   const [dragging, setDragging] = useState(false);
@@ -116,6 +123,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [bulkDeleteArmed, setBulkDeleteArmed] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -127,6 +135,7 @@ export default function App() {
     setSelectedIds(new Set());
     setBulkDeleteArmed(false);
     setBulkError(null);
+    setBulkNotice(null);
   }, []);
 
   const timeline = usePhotoTimeline({
@@ -188,8 +197,14 @@ export default function App() {
 
   const visibleItems = useMemo(() => {
     const filtered = filterMedia(timeline.items, query);
-    return viewChannelId ? filtered.filter((item) => item.channelId === viewChannelId) : filtered;
-  }, [query, timeline.items, viewChannelId]);
+    const fromMs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toMs = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
+    const dated = filtered.filter(
+      (item) =>
+        (fromMs === null || item.takenAt >= fromMs) && (toMs === null || item.takenAt <= toMs),
+    );
+    return viewChannelId ? dated.filter((item) => item.channelId === viewChannelId) : dated;
+  }, [dateFrom, dateTo, query, timeline.items, viewChannelId]);
 
   const groups = useMemo(() => groupTimeline(visibleItems), [visibleItems]);
 
@@ -299,21 +314,42 @@ export default function App() {
   };
 
   const startSelection = useCallback((item: MediaItem) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      next.add(item.id);
-      return next;
-    });
-  }, []);
+    if (selectedIds.size >= MAX_SELECTED_FILES && !selectedIds.has(item.id)) {
+      setBulkNotice(`You can select up to ${MAX_SELECTED_FILES} files at a time.`);
+      return;
+    }
+    setBulkNotice(null);
+    setSelectedIds((current) => new Set(current).add(item.id));
+  }, [selectedIds]);
 
   const toggleSelected = useCallback((item: MediaItem) => {
+    if (!selectedIds.has(item.id) && selectedIds.size >= MAX_SELECTED_FILES) {
+      setBulkNotice(`You can select up to ${MAX_SELECTED_FILES} files at a time.`);
+      return;
+    }
+    setBulkNotice(null);
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(item.id)) next.delete(item.id);
       else next.add(item.id);
       return next;
     });
-  }, []);
+  }, [selectedIds]);
+
+  const selectAll = useCallback(() => {
+    const next = new Set(selectedIds);
+    for (const item of visibleItems) {
+      if (next.size >= MAX_SELECTED_FILES) break;
+      next.add(item.id);
+    }
+    setSelectedIds(next);
+    setBulkError(null);
+    setBulkNotice(
+      next.size >= MAX_SELECTED_FILES && visibleItems.some((item) => !next.has(item.id))
+        ? `Selected the first ${MAX_SELECTED_FILES} files. Downloads are limited to ${MAX_SELECTED_FILES} at a time.`
+        : null,
+    );
+  }, [selectedIds, visibleItems]);
 
   const selectedItems = useMemo(
     () => visibleItems.filter((item) => selectedIds.has(item.id)),
@@ -324,10 +360,11 @@ export default function App() {
     if (selectedItems.length === 0 || bulkBusy) return;
     setBulkError(null);
     try {
-      for (let index = 0; index < selectedItems.length; index += 1) {
-        const entry = selectedItems[index];
+      const batch = selectedItems.slice(0, MAX_SELECTED_FILES);
+      for (let index = 0; index < batch.length; index += 1) {
+        const entry = batch[index];
         if (!entry) continue;
-        setBulkBusy(`Downloading ${index + 1} of ${selectedItems.length}…`);
+        setBulkBusy(`Downloading ${index + 1} of ${batch.length}…`);
         const media = await getFullMediaUrl(entry);
         const anchor = document.createElement('a');
         anchor.href = media.url;
@@ -443,6 +480,8 @@ export default function App() {
   const countLabel = `${visibleItems.length.toLocaleString()} ${
     visibleItems.length === 1 ? 'item' : 'items'
   }`;
+  const dateFilterActive = Boolean(dateFrom || dateTo);
+  const filtering = Boolean(query) || dateFilterActive;
 
   return (
     <div
@@ -494,7 +533,7 @@ export default function App() {
             </h1>
             <p className="mt-1 text-xs text-muted">
               {countLabel}
-              {query ? ' matching your search' : ''}
+              {filtering ? ' matching your filters' : ''}
               {channels.selectedIds.length > 1 && !viewChannelId
                 ? ` · ${channels.selectedIds.length} chats`
                 : ''}
@@ -502,6 +541,15 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            <DateFilter
+              from={dateFrom}
+              to={dateTo}
+              onChange={(from, to) => {
+                setDateFrom(from);
+                setDateTo(to);
+                clearSelection();
+              }}
+            />
             <button
               type="button"
               onClick={() => toggleEncrypt(!encryptUploads)}
@@ -533,6 +581,18 @@ export default function App() {
             >
               {timeline.loading ? <Spinner size={16} /> : <RefreshCw size={16} />}
             </button>
+
+            {visibleItems.length > 0 && selectedIds.size < MAX_SELECTED_FILES ? (
+              <button
+                type="button"
+                onClick={selectAll}
+                aria-label="Select all"
+                title={`Select all (up to ${MAX_SELECTED_FILES} files)`}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-muted hover:bg-surface hover:text-ink"
+              >
+                <ListChecks size={16} />
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -616,18 +676,29 @@ export default function App() {
               emptyState={
                 <EmptyPanel
                   icon={<Upload size={32} />}
-                  title={query ? 'No matches' : 'This library is empty'}
+                  title={filtering ? 'No matches' : 'This library is empty'}
                   body={
-                    query
-                      ? 'Try a different file name, caption, or channel name.'
+                    filtering
+                      ? query && dateFilterActive
+                        ? 'No photos match your search and date range. Try clearing one of the filters.'
+                        : dateFilterActive
+                          ? 'No photos in this date range. Try widening the dates or clearing the filter.'
+                          : 'Try a different file name, caption, or channel name.'
                       : encryptUploads
                         ? 'Drop any files here — photos, videos, PDFs, archives. They are cleaned up, previewed where possible, encrypted, then saved to your Telegram channel.'
                         : 'Drop files anywhere on this page, or use the upload button. They stay as regular Telegram photos and files.'
                   }
                   action={
-                    query ? (
-                      <Button variant="secondary" onClick={() => setQuery('')}>
-                        Clear search
+                    filtering ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setQuery('');
+                          setDateFrom('');
+                          setDateTo('');
+                        }}
+                      >
+                        Clear filters
                       </Button>
                     ) : (
                       <Button onClick={openFilePicker} leadingIcon={<Upload size={16} />}>
@@ -754,6 +825,9 @@ export default function App() {
             {bulkError && !bulkDeleteArmed ? (
               <p className="px-3 pb-2 text-[11px] text-danger">{bulkError}</p>
             ) : null}
+            {bulkNotice && !bulkDeleteArmed ? (
+              <p className="px-3 pb-2 text-[11px] text-muted">{bulkNotice}</p>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -764,6 +838,7 @@ export default function App() {
           result={uploader.result}
           encrypted={encryptUploads}
           onCancel={uploader.cancel}
+          onSkip={uploader.skip}
           onDismiss={uploader.dismiss}
         />
       ) : null}
@@ -812,6 +887,10 @@ export default function App() {
         encryptUploads={encryptUploads}
         onToggleEncrypt={toggleEncrypt}
         folderSync={folderSync}
+        onBrowseFolder={() => {
+          setSettingsOpen(false);
+          setFolderBrowserOpen(true);
+        }}
         onManageChannels={() => {
           setSettingsOpen(false);
           setSelectorOpen(true);
@@ -819,6 +898,12 @@ export default function App() {
         onLock={handleLock}
         onReset={handleReset}
         onReload={() => window.location.reload()}
+      />
+
+      <FolderBrowserModal
+        open={folderBrowserOpen}
+        onClose={() => setFolderBrowserOpen(false)}
+        folderSync={folderSync}
       />
 
       {lightboxItem ? (

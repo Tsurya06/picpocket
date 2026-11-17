@@ -16,6 +16,7 @@ import {
 import type { AuthController } from '../hooks/useTelegramAuth';
 import { VAULT_PASSPHRASE_HINT } from '../hooks/useTelegramAuth';
 import type { ThemeMode } from '../types/media';
+import { formatFullDate } from '../lib/format';
 import {
   API_CREDENTIALS_HELP_URL,
   envCredentials,
@@ -24,6 +25,8 @@ import {
   saveCustomCredentials,
 } from '../lib/config';
 import { Button, IconButton } from './ui/Button';
+import { VaultRecoverySetupModal } from './VaultRecoverySetupModal';
+import { ResetPassphraseModal } from './ResetPassphraseModal';
 import { Spinner } from './ui/Spinner';
 import { QRCodeCanvas } from './QRCodeCanvas';
 
@@ -195,11 +198,12 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
   const [passphrase, setPassphrase] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
-  const [resetArmed, setResetArmed] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const error = localError ?? auth.error;
+  const hasRecovery =
+    Boolean(auth.profile?.recovery) || auth.vaultChoices.some((choice) => choice.recovery);
   const clearError = (): void => {
     setLocalError(null);
     auth.clearError();
@@ -318,17 +322,18 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
         </div>
         <h2 className="text-2xl font-semibold tracking-tight text-ink">Welcome back</h2>
         <p className="mt-2 text-sm leading-relaxed text-muted">
-          Enter your vault passphrase to derive the key and unlock your sealed Telegram session.
+          Enter your vault passphrase or 24-word recovery phrase to unlock your sealed Telegram
+          session.
         </p>
         <ErrorBanner message={error} onDismiss={clearError} />
         <form onSubmit={unlock} className="mt-6 space-y-4">
           <SecretField
-            label="Vault passphrase"
+            label="Vault passphrase or recovery phrase"
             value={passphrase}
             onChange={setPassphrase}
             autoComplete="current-password"
             autoFocus
-            placeholder="Your passphrase"
+            placeholder="Passphrase or 24 words"
           />
           <Button type="submit" size="lg" className="w-full" disabled={auth.busy}>
             {auth.busy ? <Spinner size={17} /> : <KeyRound size={17} />}
@@ -347,39 +352,36 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
         </div>
 
         <div className="mt-6 text-center">
-          {resetArmed ? (
-            <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-left">
-              <p className="text-sm font-medium text-ink">Reset local data?</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">
-                This deletes the sealed session, the vault profile and cached previews on this
-                device. Encrypted files remain in Telegram but become unreadable without the old
-                passphrase.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button size="sm" variant="danger" onClick={() => void auth.startOver()}>
-                  Start over
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setResetArmed(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setResetArmed(true)}
-              className="text-xs font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
-            >
-              Forgot passphrase? Start over
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              clearError();
+              setForgotOpen(true);
+            }}
+            className="text-xs font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
+          >
+            Forgot passphrase? Use recovery key
+          </button>
         </div>
+        <ResetPassphraseModal
+          open={forgotOpen}
+          hasRecovery={hasRecovery}
+          busy={auth.busy}
+          error={auth.error}
+          onClose={() => setForgotOpen(false)}
+          onReset={auth.resetPassphraseWithRecovery}
+          onStartOver={() => {
+            setForgotOpen(false);
+            void auth.startOver();
+          }}
+        />
       </div>,
     );
   }
 
   if (auth.status === 'vault') {
     const creating = auth.vaultMode === 'create';
+    const orderedChoices = [...auth.vaultChoices].sort((a, b) => a.date - b.date);
     return shell(
       <div>
         <StepDots step={2} />
@@ -392,17 +394,47 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
         <p className="mt-2 text-sm leading-relaxed text-muted">
           {creating
             ? 'Telegram is connected. Choose a passphrase to seal your session and encrypt every upload.'
-            : 'This account already has a vault. Enter its passphrase to seal the new Telegram session.'}
+            : orderedChoices.length > 1
+              ? 'This account has more than one vault key. Enter your passphrase or 24-word recovery phrase once—it will be checked against every key automatically.'
+              : 'This account already has a vault. Enter its passphrase or 24-word recovery phrase to seal the new Telegram session.'}
         </p>
         <ErrorBanner message={error} onDismiss={clearError} />
+        {!creating && auth.vaultFallback && orderedChoices.length > 0 ? (
+          <details className="mt-4 rounded-xl border border-line bg-surface/60 px-3.5 py-3 text-xs">
+            <summary className="cursor-pointer font-medium text-ink">
+              Recovery: view {orderedChoices.length} vault key
+              {orderedChoices.length === 1 ? '' : 's'}
+            </summary>
+            <p className="mt-2 leading-relaxed text-muted">
+              Automatic matching found no key for that passphrase or recovery phrase. Check it and
+              try again; if it is lost, start over with a new vault.
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {orderedChoices.map((choice, index) => (
+                <li
+                  key={`${choice.channelId}:${choice.messageId}`}
+                  className="flex items-center justify-between gap-3 rounded-lg bg-app px-2.5 py-2"
+                >
+                  <span className="truncate text-ink">
+                    Key {index + 1}
+                    {index === 0 ? ' (oldest)' : ''} · {choice.channelTitle}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted">
+                    {formatFullDate(choice.date)} · {choice.saltB64.slice(-6)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
         <form onSubmit={submitVault} className="mt-6 space-y-4">
           <SecretField
-            label="Vault passphrase"
+            label={creating ? 'Vault passphrase' : 'Vault passphrase or recovery phrase'}
             value={passphrase}
             onChange={setPassphrase}
             autoComplete={creating ? 'new-password' : 'current-password'}
             autoFocus
-            placeholder="At least 8 characters"
+            placeholder={creating ? 'At least 8 characters' : 'Passphrase or 24 words'}
           />
           {creating ? (
             <>
@@ -421,8 +453,8 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
                   className="mt-0.5 h-4 w-4 rounded border-line accent-[var(--accent)]"
                 />
                 <span>
-                  I understand that losing this passphrase means losing access to vault media, and
-                  that there is no recovery server.
+                  I understand that losing both my passphrase and the recovery key shown next means
+                  losing access to vault media, and that there is no recovery server.
                 </span>
               </label>
             </>
@@ -431,40 +463,52 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
           )}
           <Button type="submit" size="lg" className="w-full" disabled={auth.busy}>
             {auth.busy ? <Spinner size={17} /> : <Lock size={17} />}
-            {auth.busy ? 'Securing session…' : creating ? 'Create vault & finish' : 'Unlock & finish'}
+            {auth.busy
+              ? creating
+                ? 'Securing session…'
+                : 'Checking vault keys…'
+              : creating
+                ? 'Create vault & continue'
+                : 'Unlock & finish'}
           </Button>
         </form>
 
         {!creating ? (
           <div className="mt-6 text-center">
-            {forgotOpen ? (
-              <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-left">
-                <p className="text-sm font-medium text-ink">No passphrase, no recovery</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Nothing is stored anywhere that can recover your passphrase. Files already
-                  encrypted with the old vault stay in Telegram but cannot be opened without it.
-                  You can start over with a new passphrase and upload new media from this device.
-                </p>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="danger" onClick={() => void auth.startOver()}>
-                    Start over
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setForgotOpen(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setForgotOpen(true)}
-                className="text-xs font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
-              >
-                Forgot passphrase?
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                clearError();
+                setForgotOpen(true);
+              }}
+              className="text-xs font-medium text-muted underline-offset-4 hover:text-ink hover:underline"
+            >
+              Forgot passphrase? Use recovery key
+            </button>
           </div>
         ) : null}
+        {auth.recoverySetup ? (
+          <VaultRecoverySetupModal
+            open
+            words={auth.recoverySetup.words}
+            busy={auth.busy}
+            error={auth.error}
+            onCancel={() => void auth.cancelVaultRecovery()}
+            onConfirm={() => void auth.confirmVaultRecovery()}
+          />
+        ) : null}
+        <ResetPassphraseModal
+          open={forgotOpen}
+          hasRecovery={hasRecovery}
+          busy={auth.busy}
+          error={auth.error}
+          onClose={() => setForgotOpen(false)}
+          onReset={auth.resetPassphraseWithRecovery}
+          onStartOver={() => {
+            setForgotOpen(false);
+            void auth.startOver();
+          }}
+        />
       </div>,
     );
   }

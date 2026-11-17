@@ -144,6 +144,8 @@ export function useChannelVaults(options: {
                 v: 1,
                 saltB64: profile.salt,
                 verifierB64: profile.verifier,
+                ...(profile.recovery ? { recovery: profile.recovery } : {}),
+                ...(profile.passphraseWrap ? { passphraseWrap: profile.passphraseWrap } : {}),
               });
             } catch {
               // No posting rights here.
@@ -192,32 +194,54 @@ export function useChannelVaults(options: {
     async (channelId: string, passphrase: string): Promise<boolean> => {
       setError(null);
       try {
-        let row: Omit<ChannelKeyRow, 'lastUsed'> | undefined =
-          await getChannelKeyRow(channelId);
-        if (!row) {
-          const found = await telegramService.findChannelHeader(channelId);
-          if (!found) {
-            setError(
-              'This channel has not published a vault header yet. Press refresh after the device that uploaded to it opens PicPocket once.',
-            );
-            return false;
+        const candidates: Array<Omit<ChannelKeyRow, 'lastUsed'>> = [];
+        const cached = await getChannelKeyRow(channelId);
+        if (cached) candidates.push(cached);
+
+        try {
+          const headers = await telegramService.findChannelHeaders(channelId);
+          for (const candidate of headers) {
+            candidates.push({
+              channelId,
+              saltB64: candidate.header.saltB64,
+              verifierB64: candidate.header.verifierB64,
+            });
           }
-          row = {
-            channelId,
-            saltB64: found.header.saltB64,
-            verifierB64: found.header.verifierB64,
-          };
-          await putChannelKeyRow(row);
+        } catch (caught) {
+          // A cached header can still work offline; only fail if we have none.
+          if (candidates.length === 0) throw caught;
         }
-        await cryptoClient.unlockChannel(
-          channelId,
-          passphrase,
-          row.saltB64,
-          row.verifierB64,
-        );
-        mark(channelId, 'ready');
-        setVersion((value) => value + 1);
-        return true;
+
+        if (candidates.length === 0) {
+          setError(
+            'This channel has not published a vault header yet. Press refresh after the device that uploaded to it opens PicPocket once.',
+          );
+          return false;
+        }
+
+        const seen = new Set<string>();
+        for (const candidate of candidates) {
+          const key = `${candidate.saltB64}:${candidate.verifierB64}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          try {
+            await cryptoClient.unlockChannel(
+              channelId,
+              passphrase,
+              candidate.saltB64,
+              candidate.verifierB64,
+            );
+            await putChannelKeyRow(candidate);
+            mark(channelId, 'ready');
+            setVersion((value) => value + 1);
+            return true;
+          } catch {
+            // This header belongs to another vault; try the next one.
+          }
+        }
+
+        setError('That passphrase does not unlock this channel.');
+        return false;
       } catch (caught) {
         setError(describeError(caught));
         return false;

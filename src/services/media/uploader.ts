@@ -7,6 +7,7 @@ import { prepareFile, type PreparedMedia } from './prepare';
 
 export const MAX_PACKABLE_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 export const TARGET_BUNDLE_SIZE = 32 * 1024 * 1024; // 32 MB
+export const UPLOAD_SKIPPED = 'Skipped by you.';
 
 export interface UploadInput {
   readonly channelId: string;
@@ -37,6 +38,8 @@ export interface BatchUploadOptions {
   readonly onItemProgress?: (index: number, fraction: number) => void;
   readonly onBundleProgress?: (label: string, fraction: number) => void;
   readonly onFloodWait?: (seconds: number) => void;
+  /** Lets the caller drop files that are still queued. */
+  readonly shouldSkip?: (index: number, file: File) => boolean;
 }
 
 export interface BatchUploadResult {
@@ -216,15 +219,22 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
     pending = [];
     pendingBytes = 0;
 
+    const skipped = batch.filter((item) => options.shouldSkip?.(item.resultIndex, item.file));
+    for (const item of skipped) {
+      results[item.resultIndex] = { file: item.file, error: UPLOAD_SKIPPED };
+    }
+    const active = batch.filter((item) => !options.shouldSkip?.(item.resultIndex, item.file));
+    if (active.length === 0) return;
+
     options.onBundleProgress?.(
-      `Packing ${batch.length} file${batch.length === 1 ? '' : 's'} into one bundle…`,
+      `Packing ${active.length} file${active.length === 1 ? '' : 's'} into one bundle…`,
       0,
     );
 
     const buffers: ArrayBuffer[] = [];
     const plan: Array<{ readonly itemIndex: number; readonly thumb: boolean }> = [];
-    for (let index = 0; index < batch.length; index += 1) {
-      const item = batch[index];
+    for (let index = 0; index < active.length; index += 1) {
+      const item = active[index];
       if (!item) continue;
       buffers.push(item.origin);
       plan.push({ itemIndex: index, thumb: false });
@@ -264,7 +274,7 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
       slicesByItem.set(step.itemIndex, entry);
     });
 
-    const entries: MediaBundleEntry[] = batch.map((item, index) => {
+    const entries: MediaBundleEntry[] = active.map((item, index) => {
       const slices = slicesByItem.get(index);
       if (!slices?.origin) throw new Error('Bundle packing lost an item.');
       return {
@@ -298,7 +308,7 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
       onFloodWait: options.onFloodWait,
     });
 
-    batch.forEach((item, index) => {
+    active.forEach((item, index) => {
       const entry = entries[index];
       if (!entry) return;
       results[item.resultIndex] = {
@@ -345,6 +355,11 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
       while (index < files.length && albumChunk.length < 10) {
         const file = files[index];
         if (!file) {
+          index += 1;
+          continue;
+        }
+        if (options.shouldSkip?.(index, file)) {
+          results[index] = { file, error: UPLOAD_SKIPPED };
           index += 1;
           continue;
         }
@@ -440,6 +455,11 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
     if (!file) continue;
     if (signal?.aborted) {
       results[index] = { file, error: 'Upload cancelled.' };
+      continue;
+    }
+
+    if (options.shouldSkip?.(index, file)) {
+      results[index] = { file, error: UPLOAD_SKIPPED };
       continue;
     }
 

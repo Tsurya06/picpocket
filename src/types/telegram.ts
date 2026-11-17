@@ -1,9 +1,21 @@
-import type { TimelineOffset } from './media';
+import type { PassphraseWrap, TimelineOffset, VaultRecovery } from './media';
 
 /** Client credentials created at https://my.telegram.org/apps. */
 export interface TelegramCredentials {
   readonly apiId: number;
   readonly apiHash: string;
+}
+
+/** One existing vault header found in Telegram, offered at sign-in. */
+export interface VaultHeaderChoice {
+  readonly channelId: string;
+  readonly channelTitle: string;
+  readonly messageId: number;
+  readonly date: number;
+  readonly saltB64: string;
+  readonly verifierB64: string;
+  readonly recovery?: VaultRecovery;
+  readonly passphraseWrap?: PassphraseWrap;
 }
 
 /**

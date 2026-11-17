@@ -8,6 +8,7 @@ import type {
   RemoteMediaDescriptor,
   RemoteThumbRef,
   TelegramCredentials,
+  VaultHeaderChoice,
 } from '../../types/telegram';
 import type { ChannelSummary, TelegramAccount, TimelineOffset } from '../../types/media';
 import {
@@ -113,6 +114,19 @@ const MANIFEST_SCAN_LIMIT = 200;
 const HEADER_SCAN_LIMIT = 100;
 const RANGE_ALIGNMENT = 4096;
 const RANGE_CHUNK_BYTES = 1024 * 1024;
+const MESSAGE_CACHE_TTL_MS = 30 * 60 * 1000;
+const MESSAGE_CACHE_MAX = 2000;
+
+interface CachedMessage {
+  readonly message: Message;
+  readonly cachedAt: number;
+}
+
+/** Telegram file references expire; a cached Message must not be used forever. */
+const isExpiredFileReference = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error);
+  return /FILE_REFERENCE|FILE_REF|FILEREF|file ref expired/i.test(message);
+};
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
   bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -192,6 +206,8 @@ export class TelegramVaultService {
   // never calls destroy() twice on the same instance.
   private readonly disposedClients = new WeakSet<TelegramClient>();
   private readonly chats = new Map<string, Chat>();
+  /** Recent history messages, so a thumbnail does not need its own getMessages RPC. */
+  private readonly messageCache = new Map<string, CachedMessage>();
   private readonly waiters = new Map<WaiterKind, Waiter>();
   private abortController: AbortController | null = null;
   private onStage: ((stage: LoginStage) => void) | null = null;
@@ -528,7 +544,18 @@ export class TelegramVaultService {
   /* ---------------------------------------------------------------- */
   /* History / timeline                                                 */
 
-  private async loadMessage(channelId: string, messageId: number): Promise<Message> {
+  private async loadMessage(
+    channelId: string,
+    messageId: number,
+    forceRefresh = false,
+  ): Promise<Message> {
+    const key = `${channelId}:${messageId}`;
+    const cached = this.messageCache.get(key);
+    if (cached && !forceRefresh && Date.now() - cached.cachedAt < MESSAGE_CACHE_TTL_MS) {
+      return cached.message;
+    }
+    if (cached) this.messageCache.delete(key);
+
     const client = this.requireClient();
     const chat = await this.resolveChat(channelId);
     const messages = await antiBan.run(
@@ -537,7 +564,38 @@ export class TelegramVaultService {
     );
     const message = messages[0];
     if (!message) throw new Error(`Message ${messageId} was not found in this channel.`);
+    this.rememberMessage(channelId, message);
     return message;
+  }
+
+  private rememberMessage(channelId: string, message: Message): void {
+    const key = `${channelId}:${message.id}`;
+    this.messageCache.delete(key);
+    this.messageCache.set(key, { message, cachedAt: Date.now() });
+    if (this.messageCache.size > MESSAGE_CACHE_MAX) {
+      const oldest = this.messageCache.keys().next().value;
+      if (oldest !== undefined) this.messageCache.delete(oldest);
+    }
+  }
+
+  /** Retries a download once with a fresh Message when its file reference expired. */
+  private async withFreshMessage<T>(
+    channelId: string,
+    messageId: number,
+    task: (message: Message) => Promise<T>,
+  ): Promise<T> {
+    const attempt = async (forceRefresh: boolean): Promise<T> => {
+      const message = await this.loadMessage(channelId, messageId, forceRefresh);
+      return task(message);
+    };
+
+    try {
+      return await attempt(false);
+    } catch (caught) {
+      if (!isExpiredFileReference(caught)) throw caught;
+      this.messageCache.delete(`${channelId}:${messageId}`);
+      return attempt(true);
+    }
   }
 
   /**
@@ -564,6 +622,7 @@ export class TelegramVaultService {
         const bundles: RemoteBundleRef[] = [];
 
         for (const message of page) {
+          this.rememberMessage(channelId, message);
           const caption = message.text;
           if (isBackupCaption(caption)) continue;
 
@@ -734,27 +793,80 @@ export class TelegramVaultService {
    * create-vault screen. Telegram-side search avoids scanning every channel's
    * history one request at a time.
    */
-  async findVaultHeader(): Promise<{
-    readonly channelId: string;
-    readonly header: ChannelHeader;
-  } | null> {
+  async findVaultHeaders(): Promise<readonly VaultHeaderChoice[]> {
     const client = this.requireClient();
     return antiBan.run(
       async () => {
         const results = await client.searchGlobal({
           // Telegram tokenises at punctuation, so search the bare marker.
           query: CHANNEL_HEADER_PREFIX.replace(/:$/, ''),
-          limit: 20,
+          limit: 50,
         });
+        const choices: VaultHeaderChoice[] = [];
+        const seen = new Map<string, number>();
         for (const message of results) {
           const header = parseChannelHeader(message.text);
           if (!header) continue;
-          return { channelId: String(message.chat.id), header };
+          const key = `${header.saltB64}:${header.verifierB64}`;
+          const existing = seen.get(key);
+          if (existing !== undefined) {
+            const previous = choices[existing];
+            if (previous) {
+              // Every passphrase reset appends a new header. Prefer the newest
+              // message so an older wrapper cannot mask the current passphrase.
+              const isNewer = message.date.getTime() >= previous.date;
+              const recovery = isNewer
+                ? header.recovery ?? previous.recovery
+                : previous.recovery ?? header.recovery;
+              const passphraseWrap = isNewer
+                ? header.passphraseWrap ?? previous.passphraseWrap
+                : previous.passphraseWrap ?? header.passphraseWrap;
+              choices[existing] = {
+                ...previous,
+                ...(recovery ? { recovery } : {}),
+                ...(passphraseWrap ? { passphraseWrap } : {}),
+              };
+            }
+            continue;
+          }
+          seen.set(key, choices.length);
+          const chat = message.chat as { readonly id: number; readonly title?: string };
+          choices.push({
+            channelId: String(chat.id),
+            channelTitle:
+              typeof chat.title === 'string' && chat.title.length > 0
+                ? chat.title
+                : 'Telegram channel',
+            messageId: message.id,
+            date: message.date.getTime(),
+            saltB64: header.saltB64,
+            verifierB64: header.verifierB64,
+            ...(header.recovery ? { recovery: header.recovery } : {}),
+            ...(header.passphraseWrap ? { passphraseWrap: header.passphraseWrap } : {}),
+          });
         }
-        return null;
+        return choices;
       },
       { kind: 'read' },
     );
+  }
+
+  async findVaultHeader(): Promise<{
+    readonly channelId: string;
+    readonly header: ChannelHeader;
+  } | null> {
+    const first = (await this.findVaultHeaders())[0];
+    if (!first) return null;
+    return {
+      channelId: first.channelId,
+      header: {
+        v: 1,
+        saltB64: first.saltB64,
+        verifierB64: first.verifierB64,
+        ...(first.recovery ? { recovery: first.recovery } : {}),
+        ...(first.passphraseWrap ? { passphraseWrap: first.passphraseWrap } : {}),
+      },
+    };
   }
 
   /** Publishes the channel vault header so other devices can derive its key. */
@@ -777,32 +889,33 @@ export class TelegramVaultService {
     options?: DownloadOptions,
   ): Promise<RawDownload> {
     const client = this.requireClient();
-    const message = await this.loadMessage(channelId, messageId);
-    const media = message.media;
-    if (!isDownloadable(media)) {
-      throw new Error('This message does not contain a downloadable file.');
-    }
+    return this.withFreshMessage(channelId, messageId, async (message) => {
+      const media = message.media;
+      if (!isDownloadable(media)) {
+        throw new Error('This message does not contain a downloadable file.');
+      }
 
-    const caption = message.text;
-    const encrypted =
-      isMetaCaption(caption) || isBundleCaption(caption) || isBackupCaption(caption);
+      const caption = message.text;
+      const encrypted =
+        isMetaCaption(caption) || isBundleCaption(caption) || isBackupCaption(caption);
 
-    const bytes = await antiBan.run(
-      () =>
-        client.downloadAsBuffer(media, {
-          ...(media.fileSize !== undefined ? { fileSize: media.fileSize } : {}),
-          progressCallback: (downloaded, total) =>
-            options?.onProgress?.(clampFraction(downloaded, total), downloaded),
-          ...(options?.signal ? { abortSignal: options.signal } : {}),
-        }),
-      {
-        kind: 'read',
-        ...(options?.signal ? { signal: options.signal } : {}),
-        ...(options?.onFloodWait ? { onFloodWait: options.onFloodWait } : {}),
-      },
-    );
+      const bytes = await antiBan.run(
+        () =>
+          client.downloadAsBuffer(media, {
+            ...(media.fileSize !== undefined ? { fileSize: media.fileSize } : {}),
+            progressCallback: (downloaded, total) =>
+              options?.onProgress?.(clampFraction(downloaded, total), downloaded),
+            ...(options?.signal ? { abortSignal: options.signal } : {}),
+          }),
+        {
+          kind: 'read',
+          ...(options?.signal ? { signal: options.signal } : {}),
+          ...(options?.onFloodWait ? { onFloodWait: options.onFloodWait } : {}),
+        },
+      );
 
-    return { bytes: toArrayBuffer(bytes), mimeType: mimeFor(media), encrypted };
+      return { bytes: toArrayBuffer(bytes), mimeType: mimeFor(media), encrypted };
+    });
   }
 
   /**
@@ -824,13 +937,13 @@ export class TelegramVaultService {
     if (byteLength <= 0) throw new Error('The requested media slice is empty.');
 
     const client = this.requireClient();
-    const message = await this.loadMessage(channelId, messageId);
-    const media = message.media;
-    if (!isDownloadable(media)) {
-      throw new Error('This message does not contain a downloadable bundle.');
-    }
+    return this.withFreshMessage(channelId, messageId, async (message) => {
+      const media = message.media;
+      if (!isDownloadable(media)) {
+        throw new Error('This message does not contain a downloadable bundle.');
+      }
 
-    const bytes = await antiBan.run(
+      const bytes = await antiBan.run(
       async () => {
         const output = new Uint8Array(byteLength);
         const fileSize = media.fileSize;
@@ -882,7 +995,8 @@ export class TelegramVaultService {
       },
     );
 
-    return { bytes: toArrayBuffer(bytes), mimeType: mimeFor(media), encrypted: true };
+      return { bytes: toArrayBuffer(bytes), mimeType: mimeFor(media), encrypted: true };
+    });
   }
 
   /**
@@ -895,32 +1009,31 @@ export class TelegramVaultService {
     thumbMessageId?: number,
   ): Promise<ThumbDownload> {
     const client = this.requireClient();
-
-    if (thumbMessageId !== undefined) {
-      const message = await this.loadMessage(channelId, thumbMessageId);
+    return this.withFreshMessage(channelId, thumbMessageId ?? messageId, async (message) => {
       const media = message.media;
       if (!isDownloadable(media)) {
-        throw new Error('The preview message does not contain a file.');
+        throw new Error(
+          thumbMessageId !== undefined
+            ? 'The preview message does not contain a file.'
+            : 'This message does not contain a downloadable file.',
+        );
       }
-      const bytes = await antiBan.run(() => client.downloadAsBuffer(media), {
+
+      if (thumbMessageId !== undefined) {
+        const bytes = await antiBan.run(() => client.downloadAsBuffer(media), {
+          kind: 'read',
+        });
+        return { bytes: toArrayBuffer(bytes), encrypted: true };
+      }
+
+      const thumb = media.thumbnails[media.thumbnails.length - 1];
+      if (!thumb) throw new Error('No preview was stored for this message.');
+
+      const bytes = await antiBan.run(() => client.downloadAsBuffer(thumb), {
         kind: 'read',
       });
-      return { bytes: toArrayBuffer(bytes), encrypted: true };
-    }
-
-    const message = await this.loadMessage(channelId, messageId);
-    const media = message.media;
-    if (!isDownloadable(media)) {
-      throw new Error('This message does not contain a downloadable file.');
-    }
-
-    const thumb = media.thumbnails[media.thumbnails.length - 1];
-    if (!thumb) throw new Error('No preview was stored for this message.');
-
-    const bytes = await antiBan.run(() => client.downloadAsBuffer(thumb), {
-      kind: 'read',
+      return { bytes: toArrayBuffer(bytes), encrypted: false };
     });
-    return { bytes: toArrayBuffer(bytes), encrypted: false };
   }
 
   /* ---------------------------------------------------------------- */
@@ -1103,6 +1216,7 @@ export class TelegramVaultService {
     }
     this.waiters.clear();
     this.chats.clear();
+    this.messageCache.clear();
     if (client) void client.destroy().catch(() => undefined);
   }
 }

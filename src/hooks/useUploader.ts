@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
 import type { UploadProgress, UploadResult } from '../types/media';
-import { uploadBatch } from '../services/media/uploader';
+import { UPLOAD_SKIPPED, uploadBatch } from '../services/media/uploader';
 
 export interface UploaderApi {
   progress: UploadProgress | null;
   result: UploadResult | null;
   upload: (files: readonly File[], targetChannelId: string, encrypt: boolean) => Promise<void>;
   cancel: () => void;
+  /** Drops a file that is still queued; the active upload is unaffected. */
+  skip: (index: number) => void;
   dismiss: () => void;
 }
 
@@ -20,6 +22,8 @@ export function useUploader(onFinished?: () => void): UploaderApi {
   const [result, setResult] = useState<UploadResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
+  const skippedRef = useRef<Set<number>>(new Set());
+  const currentIndexRef = useRef(0);
 
   const upload = useCallback(
     async (files: readonly File[], targetChannelId: string, encrypt: boolean) => {
@@ -33,12 +37,15 @@ export function useUploader(onFinished?: () => void): UploaderApi {
       }
 
       busyRef.current = true;
+      skippedRef.current = new Set();
+      currentIndexRef.current = 0;
       const controller = new AbortController();
       abortRef.current = controller;
       setResult(null);
 
       let completed = 0;
       let failed = 0;
+      let cancelled = 0;
       const failures: { name: string; reason: string }[] = [];
 
       setProgress({
@@ -48,6 +55,9 @@ export function useUploader(onFinished?: () => void): UploaderApi {
         currentName: files[0]?.name ?? '',
         currentFraction: 0,
         processing: true,
+        currentIndex: 0,
+        queue: files.map((file, index) => ({ index, name: file.name })),
+        skipped: [],
       });
 
       try {
@@ -56,10 +66,18 @@ export function useUploader(onFinished?: () => void): UploaderApi {
           files,
           encrypt,
           signal: controller.signal,
-          onItemStart: (_index, file) => {
+          shouldSkip: (index) => skippedRef.current.has(index),
+          onItemStart: (index, file) => {
+            currentIndexRef.current = index;
             setProgress((current) =>
               current
-                ? { ...current, currentName: file.name, currentFraction: 0, processing: true }
+                ? {
+                    ...current,
+                    currentName: file.name,
+                    currentIndex: index,
+                    currentFraction: 0,
+                    processing: true,
+                  }
                 : current,
             );
           },
@@ -88,6 +106,7 @@ export function useUploader(onFinished?: () => void): UploaderApi {
 
         results.forEach((result) => {
           if (result.outcome) completed += 1;
+          else if (result.error === UPLOAD_SKIPPED) cancelled += 1;
           else {
             failed += 1;
             failures.push({ name: result.file.name, reason: result.error ?? 'Upload failed.' });
@@ -118,7 +137,7 @@ export function useUploader(onFinished?: () => void): UploaderApi {
       busyRef.current = false;
       abortRef.current = null;
       setProgress((current) => (current ? { ...current, processing: false } : current));
-      setResult({ uploaded: completed, failed: failures });
+      setResult({ uploaded: completed, failed: failures, cancelled });
       if (completed > 0) onFinished?.();
     },
     [onFinished],
@@ -131,11 +150,20 @@ export function useUploader(onFinished?: () => void): UploaderApi {
     setProgress((current) => (current ? { ...current, processing: false } : current));
   }, []);
 
+  const skip = useCallback((index: number) => {
+    if (!busyRef.current) return;
+    if (index <= currentIndexRef.current) return;
+    skippedRef.current.add(index);
+    setProgress((current) =>
+      current ? { ...current, skipped: [...skippedRef.current] } : current,
+    );
+  }, []);
+
   const dismiss = useCallback(() => {
     if (busyRef.current) return;
     setProgress(null);
     setResult(null);
   }, []);
 
-  return { progress, result, upload, cancel, dismiss };
+  return { progress, result, upload, cancel, skip, dismiss };
 }

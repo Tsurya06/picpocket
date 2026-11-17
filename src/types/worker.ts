@@ -1,4 +1,4 @@
-import type { MediaKind, VaultMetadata } from './media';
+import type { MediaKind, PassphraseWrap, VaultMetadata, VaultRecovery } from './media';
 
 /**
  * Typed request/response protocol for `crypto.worker.ts`.
@@ -13,9 +13,37 @@ export interface UnlockPayload {
   readonly salt?: string;
   /** Stored `TGP1V:` verifier, validated before the key is accepted. */
   readonly verifier?: string;
+  /** Passphrase reset wrapper; decrypts the legacy channel passphrase. */
+  readonly passphraseWrap?: PassphraseWrap;
 }
 
 export interface UnlockResponse {
+  readonly salt: string;
+  readonly verifier: string;
+}
+
+export interface CreateRecoveryResponse {
+  /** 24 BIP39 words. Shown once by the UI; never stored. */
+  readonly words: string;
+  readonly recovery: VaultRecovery;
+}
+
+export interface CreateRecoveryPayload {
+  /** Salt of the current vault, used to re-derive the exact existing key. */
+  readonly salt: string;
+}
+
+export interface WrapPassphrasePayload {
+  readonly passphrase: string;
+}
+
+export interface WrapPassphraseResponse {
+  readonly passphraseWrap: PassphraseWrap;
+}
+
+export interface RecoveryUnlockPayload {
+  readonly words: string;
+  readonly recovery: VaultRecovery;
   readonly salt: string;
   readonly verifier: string;
 }
@@ -128,6 +156,9 @@ export interface ChannelKeyResponse {
 
 export interface RequestMap {
   unlock: { payload: UnlockPayload; response: UnlockResponse };
+  createRecovery: { payload: CreateRecoveryPayload; response: CreateRecoveryResponse };
+  unlockWithRecovery: { payload: RecoveryUnlockPayload; response: UnlockResponse };
+  wrapPassphrase: { payload: WrapPassphrasePayload; response: WrapPassphraseResponse };
   lock: { payload: undefined; response: undefined };
   prepareMedia: { payload: PrepareMediaPayload; response: PrepareMediaResponse };
   encryptMeta: { payload: EncryptMetaPayload; response: EncryptMetaResponse };

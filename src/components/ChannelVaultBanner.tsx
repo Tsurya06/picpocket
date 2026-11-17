@@ -74,24 +74,25 @@ export function ChannelVaultBanner({
         </p>
         <p className="mt-1 text-[11px] leading-relaxed text-muted">
           {knownLocked
-            ? 'This channel was sealed with a passphrase that differs from your vault on this device. Enter it once to unlock just this channel — your main vault and passphrase stay unchanged.'
-            : `${skipped} item${skipped === 1 ? '' : 's'} here are sealed with a key this browser has not derived yet. If you set a different vault passphrase on this device, enter the passphrase used when the channel was created.`}
+            ? 'This channel uses a passphrase that differs from your main vault. Enter it for this session to unlock just this channel — your main vault and passphrase stay unchanged. It is not saved, so you will be asked again after a reload or lock.'
+            : `${skipped} item${skipped === 1 ? ' is' : 's are'} sealed with a key this browser has not derived yet. If you set a different vault passphrase on this device, enter the passphrase used when the channel was created.`}
         </p>
 
-        {opened ? (
-          <div className="mt-2 space-y-1">
-            <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              Channel unlocked. Decrypting its items…
-            </p>
-            {skipped > 0 ? (
-              <p className="text-[11px] text-danger">
-                Still cannot read {skipped} item{skipped === 1 ? '' : 's'} here, so this channel’s
-                media was sealed by yet another vault key. Press refresh after the device that
-                uploaded it opens the channel.
-              </p>
-            ) : null}
-          </div>
-        ) : (
+        {opened && skipped === 0 ? (
+          <p className="mt-2 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            Channel unlocked.
+          </p>
+        ) : null}
+
+        {opened && skipped > 0 ? (
+          <p className="mt-2 text-[11px] text-danger">
+            That passphrase unlocked a key for this channel, but {skipped} item
+            {skipped === 1 ? ' is' : 's are'} sealed with another key. Enter the other passphrase
+            below.
+          </p>
+        ) : null}
+
+        {!opened || skipped > 0 ? (
           <form
             onSubmit={(event) => void submit(event)}
             className="mt-2.5 flex flex-col gap-2 sm:flex-row"
@@ -126,12 +127,12 @@ export function ChannelVaultBanner({
               {busy ? 'Unlocking…' : 'Unlock channel'}
             </Button>
           </form>
-        )}
+        ) : null}
 
         {error ? <p className="mt-2 text-[11px] text-danger">{error}</p> : null}
         {!opened && skipped > 0 ? (
           <p className="mt-2 text-[11px] text-muted">
-            {skipped} item{skipped === 1 ? '' : 's'} are waiting on this key.
+            {skipped} item{skipped === 1 ? ' is' : 's are'} waiting on this key.
           </p>
         ) : null}
       </div>

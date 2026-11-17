@@ -31,6 +31,7 @@ export interface SettingsModalProps {
   readonly encryptUploads: boolean;
   readonly onToggleEncrypt: (value: boolean) => void;
   readonly folderSync: FolderSyncApi;
+  readonly onBrowseFolder: () => void;
   readonly onManageChannels: () => void;
   readonly onLock: () => void;
   readonly onReset: () => void;
@@ -48,6 +49,7 @@ export function SettingsModal({
   encryptUploads,
   onToggleEncrypt,
   folderSync,
+  onBrowseFolder,
   onManageChannels,
   onLock,
   onReset,
@@ -174,17 +176,22 @@ export function SettingsModal({
                 </p>
               </div>
               {folderSync.folderName ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void folderSync.syncNow()}
-                  disabled={folderSync.syncing}
-                  leadingIcon={
-                    folderSync.syncing ? <Spinner size={14} /> : <RefreshCw size={14} />
-                  }
-                >
-                  Sync now
-                </Button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={onBrowseFolder}>
+                    Browse
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void folderSync.syncNow()}
+                    disabled={folderSync.syncing}
+                    leadingIcon={
+                      folderSync.syncing ? <Spinner size={14} /> : <RefreshCw size={14} />
+                    }
+                  >
+                    Sync now
+                  </Button>
+                </div>
               ) : null}
             </div>
 
@@ -201,6 +208,33 @@ export function SettingsModal({
                     ? `Last checked ${formatFullDate(folderSync.lastSyncAt)}`
                     : 'Not checked yet'}
                 </p>
+
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
+                  <div>
+                    <p className="text-[11px] font-medium text-ink">Automatic sync</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                      {folderSync.autoSync
+                        ? 'Checks the folder when PicPocket opens, at most once a day.'
+                        : 'Manual only. Browse the folder and upload the files you choose.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={folderSync.autoSync}
+                    aria-label="Automatic folder sync"
+                    onClick={() => folderSync.setAutoSync(!folderSync.autoSync)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                      folderSync.autoSync ? 'bg-accent' : 'bg-line'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                        folderSync.autoSync ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
 
                 {folderSync.progress &&
                 (folderSync.phase === 'scanning' ||
@@ -229,6 +263,32 @@ export function SettingsModal({
                 {folderSync.error ? (
                   <p className="mt-2 text-[11px] leading-relaxed text-danger">{folderSync.error}</p>
                 ) : null}
+
+                <div className="mt-3 flex items-start justify-between gap-3 border-t border-line pt-3">
+                  <div>
+                    <p className="text-[11px] font-medium text-ink">Background keep-alive</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
+                      Turns on automatically while a sync runs and off when it finishes. Plays a
+                      near-silent loop and shows a media notification so Chrome does not suspend the
+                      upload when you switch apps. Closing the app still stops it.
+                    </p>
+                  </div>
+                  <span
+                    role="switch"
+                    aria-checked={folderSync.keepAlive}
+                    aria-label="Background keep-alive, automatic"
+                    title="Starts and stops automatically with folder sync"
+                    className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                      folderSync.keepAlive ? 'bg-accent' : 'bg-line'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                        folderSync.keepAlive ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </span>
+                </div>
 
                 {folderSync.phase === 'needs-permission' ? (
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -262,8 +322,9 @@ export function SettingsModal({
             )}
 
             <p className="mt-3 text-[11px] leading-relaxed text-muted">
-              Checks when you open PicPocket, at most once a day. Uploads run while this tab stays
-              open; closing it stops the sync until your next visit.
+              Folder checks run when you open PicPocket, at most once a day, while Automatic sync is
+              on. Background keep-alive switches on automatically with each sync using Chromium's
+              audible-media exemption; closing the app still stops the sync.
             </p>
           </div>
 

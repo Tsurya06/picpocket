@@ -13,6 +13,12 @@
  * salt is public by design.
  */
 import { META_CAPTION_PREFIX } from './captions';
+import {
+  isPassphraseWrap,
+  isVaultRecovery,
+  type PassphraseWrap,
+  type VaultRecovery,
+} from '../../types/media';
 
 export const CHANNEL_HEADER_PREFIX = 'TGP1H:';
 
@@ -20,6 +26,8 @@ export interface ChannelHeader {
   readonly v: 1;
   readonly saltB64: string;
   readonly verifierB64: string;
+  readonly recovery?: VaultRecovery;
+  readonly passphraseWrap?: PassphraseWrap;
 }
 
 const textEncoder = new TextEncoder();
@@ -65,7 +73,17 @@ export const parseChannelHeader = (
     ) {
       return null;
     }
-    return { v: 1, saltB64: candidate.saltB64, verifierB64: candidate.verifierB64 };
+    const recovery = isVaultRecovery(candidate.recovery) ? candidate.recovery : undefined;
+    const passphraseWrap = isPassphraseWrap(candidate.passphraseWrap)
+      ? candidate.passphraseWrap
+      : undefined;
+    return {
+      v: 1,
+      saltB64: candidate.saltB64,
+      verifierB64: candidate.verifierB64,
+      ...(recovery ? { recovery } : {}),
+      ...(passphraseWrap ? { passphraseWrap } : {}),
+    };
   } catch {
     return null;
   }

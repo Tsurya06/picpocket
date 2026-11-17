@@ -114,6 +114,7 @@ Many open-source projects attempt to use Telegram as free cloud storage. Most of
 - **Nonce / IV:** A fresh 12-byte IV generated via `crypto.getRandomValues()` for every single chunk, thumbnail, and envelope. Zero IV reuse.
 - **Key Isolation:** The derived `CryptoKey` is set to `extractable: false` and kept inside the Web Worker context.
 - **Channel Header (`TGP1H:`):** A public salt and encrypted verifier pinned in the channel allows you to unlock the same vault on multiple devices without your password ever leaving your head.
+- **24-word recovery:** Optionally encodes the vault's 256-bit key as a BIP39 phrase, so the written words are the key and can unlock the vault directly. Existing media does not need re-encryption.
 
 ---
 

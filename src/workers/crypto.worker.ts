@@ -13,6 +13,8 @@
 import type {
   ChannelKeyPayload,
   ChannelKeyResponse,
+  CreateRecoveryPayload,
+  CreateRecoveryResponse,
   DecryptMetaPayload,
   DecryptPackedPayload,
   EncryptMetaPayload,
@@ -23,11 +25,15 @@ import type {
   RequestMap,
   UnlockChannelPayload,
   UnlockPayload,
+  RecoveryUnlockPayload,
   UnlockResponse,
+  WrapPassphraseResponse,
   WorkerRequest,
   WorkerRequestType,
   WorkerResponse,
 } from '../types/worker';
+import { entropyToMnemonic, mnemonicToEntropy, validateMnemonic } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
 import type { VaultMetadata } from '../types/media';
 import { isVaultMetadata } from '../types/media';
 
@@ -46,6 +52,8 @@ const THUMB_QUALITY = 0.82;
 const MAGIC = new Uint8Array([0x54, 0x47, 0x50, 0x31]); // "TGP1"
 const META_PREFIX = 'TGP1M:';
 const VERIFIER_PREFIX = 'TGP1V:';
+const RECOVERY_PREFIX = 'TGP1R:';
+const PASSPHRASE_WRAP_PREFIX = 'TGP1P:';
 const VERIFIER_PLAINTEXT = 'vault-photos:key-check:v1';
 const PACKED_IV_BYTES = 12;
 
@@ -214,6 +222,32 @@ async function assertVerifier(verifier: string, key: CryptoKey = requireKey()): 
 }
 
 async function unlock(payload: UnlockPayload): Promise<UnlockResponse> {
+  let effectivePassphrase = payload.passphrase;
+  if (payload.passphraseWrap) {
+    if (
+      payload.passphraseWrap.v !== 1 ||
+      !payload.passphraseWrap.wrappedPassphrase.startsWith(PASSPHRASE_WRAP_PREFIX)
+    ) {
+      throw new Error('The stored passphrase wrapper is corrupted.');
+    }
+    const wrapSalt = fromBase64Url(payload.passphraseWrap.saltB64);
+    if (wrapSalt.byteLength !== SALT_BYTES) throw new Error('Invalid passphrase salt.');
+    const wrappingKey = await deriveKey(payload.passphrase, wrapSalt);
+    const wrapped = fromBase64Url(
+      payload.passphraseWrap.wrappedPassphrase.slice(PASSPHRASE_WRAP_PREFIX.length),
+    );
+    try {
+      effectivePassphrase = textDecoder.decode(
+        await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: wrapped.subarray(0, IV_BYTES) as unknown as BufferSource },
+          wrappingKey,
+          wrapped.subarray(IV_BYTES) as unknown as BufferSource,
+        ),
+      );
+    } catch {
+      throw new Error('That passphrase does not unlock this vault.');
+    }
+  }
   const salt = payload.salt ? fromBase64Url(payload.salt) : randomBytes(SALT_BYTES);
   if (salt.byteLength !== SALT_BYTES) throw new Error('Invalid vault salt.');
 
@@ -222,20 +256,159 @@ async function unlock(payload: UnlockPayload): Promise<UnlockResponse> {
   vaultKey = null;
   vaultPassphrase = null;
   try {
-    vaultKey = await deriveKey(payload.passphrase, salt);
+    vaultKey = await deriveKey(effectivePassphrase, salt);
     if (payload.verifier) {
       await assertVerifier(payload.verifier);
-      vaultPassphrase = payload.passphrase;
+      vaultPassphrase = effectivePassphrase;
       return { salt: toBase64Url(salt), verifier: payload.verifier };
     }
     const verifier = await sealVerifier();
-    vaultPassphrase = payload.passphrase;
+    vaultPassphrase = effectivePassphrase;
     return { salt: toBase64Url(salt), verifier };
   } catch (error) {
     vaultKey = previousKey;
     vaultPassphrase = previousPassphrase;
     throw error;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 24-word recovery phrase                                             */
+/* ------------------------------------------------------------------ */
+
+const normalizeWords = (words: string): string =>
+  words.trim().toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+
+async function deriveKeyBits(passphrase: string, salt: Uint8Array): Promise<Uint8Array> {
+  const baseKey = await crypto.subtle.importKey(
+    'raw',
+    textEncoder.encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveBits'],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt as unknown as BufferSource,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    baseKey,
+    256,
+  );
+  return new Uint8Array(bits);
+}
+
+/** The 24 words encode the vault key itself, not a password. */
+async function createRecovery(payload: CreateRecoveryPayload): Promise<CreateRecoveryResponse> {
+  if (!vaultPassphrase) {
+    throw new Error('Unlock the vault before creating a recovery phrase.');
+  }
+  const salt = fromBase64Url(payload.salt);
+  if (salt.byteLength !== SALT_BYTES) throw new Error('Invalid vault salt.');
+
+  // Re-derive the exact existing AES key, then encode those 32 bytes as 24
+  // BIP39 words. The mnemonic therefore *is* the vault key.
+  const rawKey = await deriveKeyBits(vaultPassphrase, salt);
+  const words = entropyToMnemonic(rawKey, wordlist);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    rawKey as unknown as BufferSource,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+  const iv = randomBytes(IV_BYTES);
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+      key,
+      textEncoder.encode(vaultPassphrase),
+    ),
+  );
+  return {
+    words,
+    recovery: {
+      v: 2,
+      encryptedPassphrase: `${RECOVERY_PREFIX}${toBase64Url(concat(iv, ciphertext))}`,
+    },
+  };
+}
+
+/** Decodes the vault key from the 24 words and verifies it against the header. */
+async function unlockWithRecovery(payload: RecoveryUnlockPayload): Promise<UnlockResponse> {
+  if (
+    payload.recovery.v !== 2 ||
+    !payload.recovery.encryptedPassphrase.startsWith(RECOVERY_PREFIX)
+  ) {
+    throw new Error('The stored recovery data is corrupted.');
+  }
+  const normalized = normalizeWords(payload.words);
+  if (!validateMnemonic(normalized, wordlist)) {
+    throw new Error('That is not a valid 24-word recovery phrase.');
+  }
+  const rawKey = mnemonicToEntropy(normalized, wordlist);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    rawKey as unknown as BufferSource,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+
+  const previousKey = vaultKey;
+  const previousPassphrase = vaultPassphrase;
+  vaultKey = null;
+  vaultPassphrase = null;
+  try {
+    await assertVerifier(payload.verifier, key);
+    const raw = fromBase64Url(
+      payload.recovery.encryptedPassphrase.slice(RECOVERY_PREFIX.length),
+    );
+    const iv = raw.subarray(0, IV_BYTES);
+    const ciphertext = raw.subarray(IV_BYTES);
+    const passphrase = textDecoder.decode(
+      await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+        key,
+        ciphertext as unknown as BufferSource,
+      ),
+    );
+    vaultKey = key;
+    // The passphrase copy lets legacy per-channel keys keep deriving without
+    // turning the 24 words into an alternate password.
+    vaultPassphrase = passphrase;
+    return { salt: payload.salt, verifier: payload.verifier };
+  } catch {
+    vaultKey = previousKey;
+    vaultPassphrase = previousPassphrase;
+    throw new Error('That recovery phrase does not unlock this vault.');
+  }
+}
+
+/** Wraps the current legacy passphrase under a new passphrase. */
+async function wrapPassphrase(passphrase: string): Promise<WrapPassphraseResponse> {
+  if (!vaultPassphrase) {
+    throw new Error('Unlock the vault before changing its passphrase.');
+  }
+  const salt = randomBytes(SALT_BYTES);
+  const wrappingKey = await deriveKey(passphrase, salt);
+  const iv = randomBytes(IV_BYTES);
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+      wrappingKey,
+      textEncoder.encode(vaultPassphrase),
+    ),
+  );
+  return {
+    passphraseWrap: {
+      v: 1,
+      saltB64: toBase64Url(salt),
+      wrappedPassphrase: `${PASSPHRASE_WRAP_PREFIX}${toBase64Url(concat(iv, ciphertext))}`,
+    },
+  };
 }
 
 /**
@@ -667,6 +840,9 @@ type Handler = (payload: never) => Promise<unknown>;
 
 const handlers: { [K in WorkerRequestType]: (payload: RequestMap[K]['payload']) => Promise<RequestMap[K]['response']> } = {
   unlock: (payload) => unlock(payload),
+  createRecovery: (payload) => createRecovery(payload),
+  unlockWithRecovery: (payload) => unlockWithRecovery(payload),
+  wrapPassphrase: (payload) => wrapPassphrase(payload.passphrase),
   lock: async () => {
     vaultKey = null;
     vaultPassphrase = null;

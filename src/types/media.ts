@@ -107,6 +107,11 @@ export interface MonthGroup {
   readonly days: readonly DayGroup[];
 }
 
+export interface UploadQueueEntry {
+  readonly index: number;
+  readonly name: string;
+}
+
 export interface UploadProgress {
   readonly total: number;
   readonly completed: number;
@@ -116,11 +121,16 @@ export interface UploadProgress {
   readonly currentFraction: number;
   /** True while the crypto worker is deriving keys or encoding thumbnails. */
   readonly processing: boolean;
+  readonly currentIndex: number;
+  readonly queue: readonly UploadQueueEntry[];
+  /** Indices the user removed before their upload started. */
+  readonly skipped: readonly number[];
 }
 
 export interface UploadResult {
   readonly uploaded: number;
   readonly failed: readonly { readonly name: string; readonly reason: string }[];
+  readonly cancelled?: number;
 }
 
 /** A channel the user can select as a media source. */
@@ -147,11 +157,49 @@ export interface TelegramAccount {
 }
 
 /** Persisted, passphrase-protected marker used to validate the vault key. */
+export interface VaultRecovery {
+  readonly v: 2;
+  /**
+   * AES-GCM(iv|passphrase) sealed with the vault key itself. The 24 words
+   * encode that key, so recovering the words is enough to derive the key.
+   * The passphrase copy is only used for legacy per-channel key derivation.
+   */
+  readonly encryptedPassphrase: string;
+}
+
+export const isVaultRecovery = (value: unknown): value is VaultRecovery => {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<VaultRecovery>;
+  return candidate.v === 2 && typeof candidate.encryptedPassphrase === 'string';
+};
+
+export interface PassphraseWrap {
+  readonly v: 1;
+  /** Salt for deriving the wrapping key from the current passphrase. */
+  readonly saltB64: string;
+  /** AES-GCM(iv|legacy-passphrase) under the passphrase-derived wrapping key. */
+  readonly wrappedPassphrase: string;
+}
+
+export const isPassphraseWrap = (value: unknown): value is PassphraseWrap => {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<PassphraseWrap>;
+  return (
+    candidate.v === 1 &&
+    typeof candidate.saltB64 === 'string' &&
+    typeof candidate.wrappedPassphrase === 'string'
+  );
+};
+
 export interface VaultProfile {
   readonly salt: string;
   readonly verifier: string;
   readonly iterations: number;
   readonly createdAt: number;
+  /** Optional 24-word recovery wrapper for the passphrase. */
+  readonly recovery?: VaultRecovery;
+  /** Present after the passphrase is reset using the recovery key. */
+  readonly passphraseWrap?: PassphraseWrap;
 }
 
 export type ThemeMode = 'light' | 'dark';
