@@ -62,6 +62,8 @@ export interface FolderUploadResult {
   readonly failures: readonly string[];
 }
 
+export type FolderSelectionMode = 'handle' | 'input' | 'none';
+
 export class FolderPermissionError extends Error {
   constructor() {
     super(
@@ -73,7 +75,16 @@ export class FolderPermissionError extends Error {
 
 export function supportsFolderSync(): boolean {
   if (typeof window === 'undefined') return false;
-  return typeof (window as unknown as PickerWindow).showDirectoryPicker === 'function';
+  return folderSelectionMode() !== 'none';
+}
+
+/** Some Android browsers expose folder upload through <input webkitdirectory>. */
+export function folderSelectionMode(): FolderSelectionMode {
+  if (typeof window === 'undefined') return 'none';
+  if (typeof (window as unknown as PickerWindow).showDirectoryPicker === 'function') return 'handle';
+  if (typeof document === 'undefined') return 'none';
+  const input = document.createElement('input');
+  return 'webkitdirectory' in input ? 'input' : 'none';
 }
 
 const isMediaFile = (file: File): boolean =>
@@ -124,6 +135,36 @@ export async function scanFolder(
   const files: ScannedFolderFile[] = [];
   await walkDirectory(directory, '', files, 0);
   return files;
+}
+
+/** The root folder name from a webkitdirectory selection. */
+export function folderNameFromFiles(files: readonly File[]): string {
+  for (const file of files) {
+    const root = file.webkitRelativePath.split('/')[0];
+    if (root) return root;
+  }
+  return 'Selected folder';
+}
+
+/** Builds the same scanned-entry shape from a webkitdirectory FileList. */
+export function scanFolderFiles(files: readonly File[]): ScannedFolderFile[] {
+  const entries = new Map<string, ScannedFolderFile>();
+  for (const file of files) {
+    if (entries.size >= MAX_FILES) break;
+    if (shouldSkip(file.name, file) || !isMediaFile(file)) continue;
+
+    const parts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+    if (parts.length > 1) parts.shift();
+    if (parts.some((part) => part.startsWith('.') || part === '__MACOSX')) continue;
+    const path = parts.join('/');
+    if (!path) continue;
+    entries.set(path, {
+      file,
+      path,
+      signature: `${file.size}:${file.lastModified}`,
+    });
+  }
+  return [...entries.values()];
 }
 
 /** Scans the folder and marks each file that is already in the vault. */
@@ -195,7 +236,7 @@ export async function pickFolder(): Promise<FolderSyncConfig> {
   const picker = (window as unknown as PickerWindow).showDirectoryPicker;
   if (!picker) {
     throw new Error(
-      'This browser cannot open a folder picker. Folder sync is available in Chromium-based browsers.',
+      'This browser cannot open a folder picker. Use desktop Chrome/Edge or a recent Chrome on Android.',
     );
   }
 
@@ -228,9 +269,44 @@ export async function syncFolder(
     throw new FolderPermissionError();
   }
 
+  const files = await scanFolder(config.handle);
+  const result = await runFolderEntries(
+    config.name,
+    files,
+    channelId,
+    encrypt,
+    onProgress,
+  );
+  await saveFolderConfig({ ...config, lastSyncAt: result.completedAt });
+  return result;
+}
+
+/** Uploads a folder selected through <input webkitdirectory>; no handle persists. */
+export async function uploadSelectedFolder(
+  files: readonly File[],
+  channelId: string,
+  encrypt: boolean,
+  onProgress: (progress: FolderSyncProgress) => void,
+): Promise<FolderSyncResult> {
+  return runFolderEntries(
+    folderNameFromFiles(files),
+    scanFolderFiles(files),
+    channelId,
+    encrypt,
+    onProgress,
+  );
+}
+
+async function runFolderEntries(
+  name: string,
+  files: readonly ScannedFolderFile[],
+  channelId: string,
+  encrypt: boolean,
+  onProgress: (progress: FolderSyncProgress) => void,
+): Promise<FolderSyncResult> {
   onProgress({
     phase: 'scanning',
-    label: `Checking ${config.name}…`,
+    label: `Checking ${name}…`,
     found: 0,
     pending: 0,
     uploaded: 0,
@@ -238,7 +314,6 @@ export async function syncFolder(
     bytes: 0,
   });
 
-  const files = await scanFolder(config.handle);
   const rows = await getFolderSyncFiles(channelId);
   const known = new Map(rows.map((row) => [row.path, row.signature]));
   const pending = files.filter((entry) => known.get(entry.path) !== entry.signature);
@@ -268,7 +343,6 @@ export async function syncFolder(
   });
 
   const completedAt = Date.now();
-  await saveFolderConfig({ ...config, lastSyncAt: completedAt });
   return {
     found: files.length,
     pending: pending.length,

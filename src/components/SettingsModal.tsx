@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Check,
   Database,
@@ -58,6 +58,7 @@ export function SettingsModal({
   const [stats, setStats] = useState<{ entries: number; bytes: number } | null>(null);
   const [clearing, setClearing] = useState(false);
   const [resetArmed, setResetArmed] = useState(false);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +70,13 @@ export function SettingsModal({
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const input = folderInputRef.current;
+    input?.setAttribute('webkitdirectory', '');
+    input?.setAttribute('directory', '');
   }, [open]);
 
   const clearCache = async (): Promise<void> => {
@@ -195,11 +203,53 @@ export function SettingsModal({
               ) : null}
             </div>
 
-            {!folderSync.supported ? (
+            {folderSync.selectionMode === 'none' ? (
               <p className="mt-3 rounded-xl bg-surface/60 p-3 text-[11px] leading-relaxed text-muted">
-                This browser cannot open folders. Folder sync works in Chromium-based browsers on
-                desktop and Android; use Upload files elsewhere.
+                This browser does not expose folder selection. Use Upload files, or open PicPocket
+                in desktop Chrome/Edge or a recent Chrome on Android.
               </p>
+            ) : folderSync.selectionMode === 'input' ? (
+              <>
+                <p className="mt-3 rounded-xl bg-surface/60 p-3 text-[11px] leading-relaxed text-muted">
+                  This browser can select a folder for a one-time upload, but cannot keep access to
+                  it for automatic syncing. Choose the folder each time you want to upload new
+                  files.
+                </p>
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    const files = event.target.files ? Array.from(event.target.files) : [];
+                    event.target.value = '';
+                    if (files.length > 0) void folderSync.uploadFolderSelection(files);
+                  }}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-3"
+                  onClick={() => folderInputRef.current?.click()}
+                  disabled={folderSync.syncing}
+                >
+                  Choose folder
+                </Button>
+                {folderSync.fallbackName ? (
+                  <div className="mt-3 rounded-xl bg-surface/60 p-3">
+                    <p className="truncate text-xs font-medium text-ink">{folderSync.fallbackName}</p>
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      {folderSync.progress?.label ??
+                        (folderSync.syncing ? 'Scanning folder…' : 'Ready')}
+                    </p>
+                    {folderSync.error ? (
+                      <p className="mt-2 text-[11px] leading-relaxed text-danger">
+                        {folderSync.error}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
             ) : folderSync.folderName ? (
               <div className="mt-3 rounded-xl bg-surface/60 p-3">
                 <p className="truncate text-xs font-medium text-ink">{folderSync.folderName}</p>
@@ -321,11 +371,13 @@ export function SettingsModal({
               </Button>
             )}
 
-            <p className="mt-3 text-[11px] leading-relaxed text-muted">
-              Folder checks run when you open PicPocket, at most once a day, while Automatic sync is
-              on. Background keep-alive switches on automatically with each sync using Chromium's
-              audible-media exemption; closing the app still stops the sync.
-            </p>
+            {folderSync.selectionMode === 'handle' ? (
+              <p className="mt-3 text-[11px] leading-relaxed text-muted">
+                Folder checks run when you open PicPocket, at most once a day, while Automatic sync
+                is on. Background keep-alive switches on automatically with each sync using
+                Chromium's audible-media exemption; closing the app still stops the sync.
+              </p>
+            ) : null}
           </div>
 
           {/* Channels */}

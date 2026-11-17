@@ -8,6 +8,8 @@ import type {
 import {
   FolderPermissionError,
   clearFolderConfig,
+  folderNameFromFiles,
+  folderSelectionMode,
   folderPermission,
   loadFolderConfig,
   pickFolder,
@@ -16,8 +18,10 @@ import {
   scanFolderLibrary,
   supportsFolderSync,
   syncFolder,
+  uploadSelectedFolder,
   uploadFolderEntries,
   type FolderUploadResult,
+  type FolderSelectionMode,
 } from '../services/media/folderSync';
 import {
   startSyncKeepAlive,
@@ -29,7 +33,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface FolderSyncApi {
   readonly supported: boolean;
+  readonly selectionMode: FolderSelectionMode;
   readonly folderName: string | null;
+  readonly fallbackName: string | null;
   readonly lastSyncAt: number | null;
   readonly phase: FolderSyncPhase;
   readonly progress: FolderSyncProgress | null;
@@ -43,6 +49,7 @@ export interface FolderSyncApi {
     entries: readonly FolderLibraryEntry[],
   ) => Promise<FolderUploadResult>;
   readonly chooseFolder: () => Promise<void>;
+  readonly uploadFolderSelection: (files: readonly File[]) => Promise<void>;
   readonly syncNow: () => Promise<void>;
   readonly disconnect: () => Promise<void>;
 }
@@ -78,6 +85,7 @@ export function useFolderSync({
   onUploaded,
 }: UseFolderSyncOptions): FolderSyncApi {
   const [config, setConfig] = useState<FolderSyncConfig | null>(null);
+  const [fallbackName, setFallbackName] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [phase, setPhase] = useState<FolderSyncPhase>('idle');
   const [progress, setProgress] = useState<FolderSyncProgress | null>(null);
@@ -210,6 +218,44 @@ export function useFolderSync({
     }
   }, [channelId, run]);
 
+  const uploadFolderSelection = useCallback(
+    async (files: readonly File[]): Promise<void> => {
+      if (syncingRef.current || entryUploadRef.current) return;
+      if (!channelId) {
+        setPhase('error');
+        setError('Choose a vault channel before adding a folder.');
+        return;
+      }
+      if (files.length === 0) return;
+
+      setError(null);
+      setFallbackName(folderNameFromFiles(files));
+      setPhase('scanning');
+      syncingRef.current = true;
+      try {
+        await startSyncKeepAlive();
+        const result = await uploadSelectedFolder(files, channelId, encrypt, (next) => {
+          setPhase(next.phase);
+          setProgress(next);
+        });
+        setPhase('done');
+        if (result.failed > 0) {
+          setError(
+            `${result.failed} item${result.failed === 1 ? '' : 's'} could not be uploaded.`,
+          );
+        }
+        if (result.uploaded > 0) onUploaded();
+      } catch (caught) {
+        setPhase('error');
+        setError(describeError(caught));
+      } finally {
+        stopSyncKeepAlive();
+        syncingRef.current = false;
+      }
+    },
+    [channelId, encrypt, onUploaded],
+  );
+
   const syncNow = useCallback(async (): Promise<void> => {
     if (config) await run(config, true);
   }, [config, run]);
@@ -253,6 +299,7 @@ export function useFolderSync({
     stopSyncKeepAlive();
     await clearFolderConfig();
     setConfig(null);
+    setFallbackName(null);
     setAutoSyncState(true);
     setProgress(null);
     setPhase('idle');
@@ -261,7 +308,9 @@ export function useFolderSync({
 
   return {
     supported: supportsFolderSync(),
+    selectionMode: folderSelectionMode(),
     folderName: config?.name ?? null,
+    fallbackName,
     lastSyncAt: config?.lastSyncAt ?? null,
     phase,
     progress,
@@ -273,6 +322,7 @@ export function useFolderSync({
     listLocalFiles,
     uploadLocalFiles,
     chooseFolder,
+    uploadFolderSelection,
     syncNow,
     disconnect,
   };
