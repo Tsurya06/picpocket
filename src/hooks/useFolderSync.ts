@@ -12,6 +12,7 @@ import {
   folderSelectionMode,
   folderPermission,
   loadFolderConfig,
+  loadFallbackFolderConfig,
   pickFolder,
   requestFolderPermission,
   saveFolderConfig,
@@ -20,6 +21,7 @@ import {
   syncFolder,
   uploadSelectedFolder,
   uploadFolderEntries,
+  type FallbackFolderConfig,
   type FolderUploadResult,
   type FolderSelectionMode,
 } from '../services/media/folderSync';
@@ -37,6 +39,7 @@ export interface FolderSyncApi {
   readonly folderName: string | null;
   readonly fallbackName: string | null;
   readonly lastSyncAt: number | null;
+  readonly fallbackLastSyncAt: number | null;
   readonly phase: FolderSyncPhase;
   readonly progress: FolderSyncProgress | null;
   readonly error: string | null;
@@ -85,6 +88,7 @@ export function useFolderSync({
   onUploaded,
 }: UseFolderSyncOptions): FolderSyncApi {
   const [config, setConfig] = useState<FolderSyncConfig | null>(null);
+  const [fallbackConfig, setFallbackConfig] = useState<FallbackFolderConfig | null>(null);
   const [fallbackName, setFallbackName] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [phase, setPhase] = useState<FolderSyncPhase>('idle');
@@ -107,10 +111,12 @@ export function useFolderSync({
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
-    void loadFolderConfig()
-      .then((value) => {
+    void Promise.all([loadFolderConfig(), loadFallbackFolderConfig()])
+      .then(([value, fallback]) => {
         if (cancelled) return;
         setConfig(value);
+        setFallbackConfig(fallback);
+        if (fallback) setFallbackName(fallback.name);
         setAutoSyncState(value?.autoSync ?? true);
         setLoaded(true);
       })
@@ -238,6 +244,13 @@ export function useFolderSync({
           setPhase(next.phase);
           setProgress(next);
         });
+        const name = folderNameFromFiles(files);
+        setFallbackName(name);
+        setFallbackConfig({
+          name,
+          lastSyncAt: result.completedAt,
+          fileCount: files.length,
+        });
         setPhase('done');
         if (result.failed > 0) {
           setError(
@@ -300,6 +313,7 @@ export function useFolderSync({
     await clearFolderConfig();
     setConfig(null);
     setFallbackName(null);
+    setFallbackConfig(null);
     setAutoSyncState(true);
     setProgress(null);
     setPhase('idle');
@@ -312,6 +326,7 @@ export function useFolderSync({
     folderName: config?.name ?? null,
     fallbackName,
     lastSyncAt: config?.lastSyncAt ?? null,
+    fallbackLastSyncAt: fallbackConfig?.lastSyncAt ?? null,
     phase,
     progress,
     error,

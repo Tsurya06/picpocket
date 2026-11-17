@@ -228,8 +228,35 @@ export async function saveFolderConfig(config: FolderSyncConfig): Promise<void> 
   await setSetting(CONFIG_KEY, config);
 }
 
+const FALLBACK_CONFIG_KEY = 'folder.sync.fallback_config';
+
+export interface FallbackFolderConfig {
+  readonly name: string;
+  readonly lastSyncAt: number | null;
+  readonly fileCount: number;
+}
+
+export async function loadFallbackFolderConfig(): Promise<FallbackFolderConfig | null> {
+  const candidate = await getSetting<FallbackFolderConfig | null>(FALLBACK_CONFIG_KEY, null);
+  if (!candidate || typeof candidate !== 'object' || typeof candidate.name !== 'string') return null;
+  return {
+    name: candidate.name,
+    lastSyncAt: typeof candidate.lastSyncAt === 'number' ? candidate.lastSyncAt : null,
+    fileCount: typeof candidate.fileCount === 'number' ? candidate.fileCount : 0,
+  };
+}
+
+export async function saveFallbackFolderConfig(config: FallbackFolderConfig): Promise<void> {
+  await setSetting(FALLBACK_CONFIG_KEY, config);
+}
+
+export async function clearFallbackFolderConfig(): Promise<void> {
+  await setSetting(FALLBACK_CONFIG_KEY, null);
+}
+
 export async function clearFolderConfig(): Promise<void> {
   await setSetting(CONFIG_KEY, null);
+  await setSetting(FALLBACK_CONFIG_KEY, null);
 }
 
 export async function pickFolder(): Promise<FolderSyncConfig> {
@@ -281,20 +308,26 @@ export async function syncFolder(
   return result;
 }
 
-/** Uploads a folder selected through <input webkitdirectory>; no handle persists. */
+/** Uploads a folder selected through <input webkitdirectory>; persists folder state across sessions. */
 export async function uploadSelectedFolder(
   files: readonly File[],
   channelId: string,
   encrypt: boolean,
   onProgress: (progress: FolderSyncProgress) => void,
 ): Promise<FolderSyncResult> {
-  return runFolderEntries(
+  const result = await runFolderEntries(
     folderNameFromFiles(files),
     scanFolderFiles(files),
     channelId,
     encrypt,
     onProgress,
   );
+  await saveFallbackFolderConfig({
+    name: folderNameFromFiles(files),
+    lastSyncAt: result.completedAt,
+    fileCount: files.length,
+  });
+  return result;
 }
 
 async function runFolderEntries(

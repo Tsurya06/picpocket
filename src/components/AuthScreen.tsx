@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   Eye,
   EyeOff,
   FolderLock,
@@ -24,6 +25,12 @@ import {
   loadCustomCredentials,
   saveCustomCredentials,
 } from '../lib/config';
+import {
+  COUNTRIES,
+  detectDefaultCountry,
+  parseInternationalPhone,
+  type Country,
+} from '../lib/countries';
 import { Button, IconButton } from './ui/Button';
 import { VaultRecoverySetupModal } from './VaultRecoverySetupModal';
 import { ResetPassphraseModal } from './ResetPassphraseModal';
@@ -192,7 +199,8 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
       ? 'qr'
       : 'phone',
   );
-  const [phone, setPhone] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState<Country>(detectDefaultCountry);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -225,8 +233,10 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
       );
       return;
     }
-    if (method === 'phone' && !/^\+?[0-9\s-]{6,18}$/.test(phone.trim())) {
-      setLocalError('Enter your phone number in international format.');
+    const cleanDigits = phoneNumber.replace(/[^0-9]/g, '');
+    const fullPhone = `${selectedCountry.dial}${cleanDigits}`;
+    if (method === 'phone' && (cleanDigits.length < 4 || !/^\+[0-9]{7,16}$/.test(fullPhone))) {
+      setLocalError('Enter a valid phone number with country code.');
       return;
     }
     // Deployment credentials win; otherwise remember what the user entered.
@@ -235,7 +245,7 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
       apiId: parsedApiId,
       apiHash: apiHash.trim(),
       mode: method,
-      phone: method === 'phone' ? phone.trim() : undefined,
+      phone: method === 'phone' ? fullPhone : undefined,
     });
   };
 
@@ -647,15 +657,47 @@ export function AuthScreen({ auth, theme, onToggleTheme }: AuthScreenProps) {
         </div>
 
         {method === 'phone' ? (
-          <Field label="Phone number" hint="International format, for example +1 415 555 0132.">
-            <input
-              className={inputClass}
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="+1 415 555 0132"
-            />
+          <Field label="Phone number" hint="Choose your country code and enter your mobile number.">
+            <div className="flex gap-2">
+              <div className="relative shrink-0">
+                <select
+                  className="h-11 rounded-xl border border-line bg-app pl-3 pr-8 text-sm font-medium text-ink focus:border-accent focus:outline-none cursor-pointer appearance-none"
+                  value={selectedCountry.code}
+                  onChange={(event) => {
+                    const found = COUNTRIES.find((c) => c.code === event.target.value);
+                    if (found) setSelectedCountry(found);
+                  }}
+                  aria-label="Country code"
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.flag} {c.dial} ({c.name})
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted">
+                  <ChevronDown size={14} />
+                </div>
+              </div>
+              <input
+                className={`${inputClass} flex-1`}
+                value={phoneNumber}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  const parsed = parseInternationalPhone(val);
+                  if (parsed) {
+                    setSelectedCountry(parsed.country);
+                    setPhoneNumber(parsed.national);
+                  } else {
+                    setPhoneNumber(val);
+                  }
+                }}
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="Mobile number"
+                autoFocus
+              />
+            </div>
           </Field>
         ) : (
           <p className="rounded-xl border border-line bg-surface/50 px-4 py-3 text-xs leading-relaxed text-muted">

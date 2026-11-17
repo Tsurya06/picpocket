@@ -19,6 +19,7 @@ import { clearAllMediaCache, getCacheStats } from '../services/cache/db';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { Spinner } from './ui/Spinner';
+import { startSyncKeepAlive } from '../services/media/syncKeepAlive';
 
 export interface SettingsModalProps {
   readonly open: boolean;
@@ -210,11 +211,6 @@ export function SettingsModal({
               </p>
             ) : folderSync.selectionMode === 'input' ? (
               <>
-                <p className="mt-3 rounded-xl bg-surface/60 p-3 text-[11px] leading-relaxed text-muted">
-                  This browser can select a folder for a one-time upload, but cannot keep access to
-                  it for automatic syncing. Choose the folder each time you want to upload new
-                  files.
-                </p>
                 <input
                   ref={folderInputRef}
                   type="file"
@@ -226,29 +222,65 @@ export function SettingsModal({
                     if (files.length > 0) void folderSync.uploadFolderSelection(files);
                   }}
                 />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="mt-3"
-                  onClick={() => folderInputRef.current?.click()}
-                  disabled={folderSync.syncing}
-                >
-                  Choose folder
-                </Button>
                 {folderSync.fallbackName ? (
                   <div className="mt-3 rounded-xl bg-surface/60 p-3">
                     <p className="truncate text-xs font-medium text-ink">{folderSync.fallbackName}</p>
                     <p className="mt-0.5 text-[11px] text-muted">
                       {folderSync.progress?.label ??
-                        (folderSync.syncing ? 'Scanning folder…' : 'Ready')}
+                        (folderSync.syncing
+                          ? 'Scanning folder…'
+                          : folderSync.fallbackLastSyncAt
+                            ? `Last checked ${formatFullDate(folderSync.fallbackLastSyncAt)}`
+                            : 'Ready to sync')}
                     </p>
                     {folderSync.error ? (
                       <p className="mt-2 text-[11px] leading-relaxed text-danger">
                         {folderSync.error}
                       </p>
                     ) : null}
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          void startSyncKeepAlive();
+                          folderInputRef.current?.click();
+                        }}
+                        disabled={folderSync.syncing}
+                        leadingIcon={folderSync.syncing ? <Spinner size={14} /> : <RefreshCw size={14} />}
+                      >
+                        {folderSync.syncing ? 'Syncing…' : 'Sync folder'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void folderSync.disconnect()}
+                        disabled={folderSync.syncing}
+                      >
+                        Disconnect
+                      </Button>
+                    </div>
                   </div>
-                ) : null}
+                ) : (
+                  <>
+                    <p className="mt-3 rounded-xl bg-surface/60 p-3 text-[11px] leading-relaxed text-muted">
+                      Select any folder on your device. PicPocket will remember this folder and keep sync active in the background.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="mt-3"
+                      onClick={() => {
+                        void startSyncKeepAlive();
+                        folderInputRef.current?.click();
+                      }}
+                      disabled={folderSync.syncing}
+                    >
+                      Choose folder to sync
+                    </Button>
+                  </>
+                )}
               </>
             ) : folderSync.folderName ? (
               <div className="mt-3 rounded-xl bg-surface/60 p-3">
