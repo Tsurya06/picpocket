@@ -44,6 +44,7 @@ export interface FolderSyncApi {
   readonly error: string | null;
   readonly syncing: boolean;
   readonly keepAlive: boolean;
+  readonly toggleKeepAlive: () => Promise<void>;
   readonly autoSync: boolean;
   readonly scheduleTime: string;
   readonly setAutoSync: (value: boolean) => void;
@@ -339,6 +340,14 @@ export function useFolderSync({
     [channelId, config, encrypt, onUploaded],
   );
 
+  const toggleKeepAlive = useCallback(async (): Promise<void> => {
+    if (keepAlive) {
+      stopSyncKeepAlive();
+    } else {
+      await startSyncKeepAlive();
+    }
+  }, [keepAlive]);
+
   const disconnect = useCallback(async (): Promise<void> => {
     stopSyncKeepAlive();
     await clearFolderConfig();
@@ -364,6 +373,7 @@ export function useFolderSync({
     error,
     syncing: syncingRef.current || phase === 'scanning' || phase === 'uploading',
     keepAlive,
+    toggleKeepAlive,
     autoSync,
     scheduleTime,
     setAutoSync,

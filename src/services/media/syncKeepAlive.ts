@@ -2,9 +2,9 @@ const SAMPLE_RATE = 8_000;
 const LOOP_SECONDS = 8;
 const TONE_HZ = 60;
 /**
- * Chrome only exempts tabs from background throttling when the page is
- * *audible*. A full-scale tone at 1% volume is effectively inaudible but still
- * gives Chrome a non-silent media stream to keep the sync alive.
+ * Chrome & Chromium only exempt tabs from background throttling when the page
+ * is playing audible media or holding a wake lock. An inaudible tone (1% volume)
+ * keeps Chromium from suspending the sync process.
  */
 const VOLUME = 0.01;
 
@@ -13,6 +13,7 @@ let audioUrl: string | null = null;
 let wanted = false;
 let active = false;
 let retryHandler: (() => void) | null = null;
+let wakeLockSentinel: WakeLockSentinel | null = null;
 const listeners = new Set<(active: boolean) => void>();
 
 function setActive(next: boolean): void {
@@ -21,6 +22,11 @@ function setActive(next: boolean): void {
   for (const listener of listeners) {
     listener(active);
   }
+}
+
+/** Check if keep alive is currently active */
+export function isSyncKeepAliveActive(): boolean {
+  return active;
 }
 
 /** Lets the settings switch follow the automatic keep-alive state. */
@@ -80,10 +86,48 @@ function ensureAudio(): HTMLAudioElement {
   element.setAttribute('aria-hidden', 'true');
   element.style.display = 'none';
   element.addEventListener('play', () => setActive(true));
-  element.addEventListener('pause', () => setActive(false));
+  element.addEventListener('pause', () => {
+    if (!wanted) setActive(false);
+  });
   document.body.appendChild(element);
   audio = element;
   return element;
+}
+
+async function requestWakeLock(): Promise<void> {
+  if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+  try {
+    if (!wakeLockSentinel || wakeLockSentinel.released) {
+      wakeLockSentinel = await navigator.wakeLock.request('screen');
+      wakeLockSentinel.addEventListener('release', () => {
+        wakeLockSentinel = null;
+      });
+    }
+  } catch {
+    // Wake Lock may fail when page is in background or low battery
+  }
+}
+
+function releaseWakeLock(): void {
+  if (wakeLockSentinel) {
+    try {
+      void wakeLockSentinel.release();
+    } catch {
+      // Ignore release errors
+    }
+    wakeLockSentinel = null;
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (wanted && document.visibilityState === 'visible') {
+      void requestWakeLock();
+      if (audio && audio.paused) {
+        void audio.play().catch(() => undefined);
+      }
+    }
+  });
 }
 
 function updateMediaSession(): void {
@@ -112,7 +156,7 @@ function removeRetryHandler(): void {
 
 /**
  * Autoplay is blocked without a user gesture, so automatic on-open syncs arm a
- * one-shot pointerdown retry. A manual "Sync now" starts inside the gesture.
+ * one-shot pointerdown retry. A manual click starts inside the gesture.
  */
 function armGestureRetry(): void {
   if (retryHandler || !wanted) return;
@@ -120,6 +164,7 @@ function armGestureRetry(): void {
   retryHandler = () => {
     removeRetryHandler();
     if (!wanted) return;
+    void requestWakeLock();
     void ensureAudio()
       .play()
       .then(() => {
@@ -135,11 +180,15 @@ function armGestureRetry(): void {
   window.addEventListener('pointerdown', retryHandler, true);
 }
 
-/** Starts the near-silent loop. Safe to call repeatedly. */
+/** Starts the keep-alive loop and wake lock. Safe to call repeatedly. */
 export async function startSyncKeepAlive(): Promise<boolean> {
-  if (typeof window === 'undefined' || typeof Audio === 'undefined') return false;
+  if (typeof window === 'undefined') return false;
 
   wanted = true;
+  void requestWakeLock();
+
+  if (typeof Audio === 'undefined') return false;
+
   const element = ensureAudio();
   try {
     await element.play();
@@ -153,10 +202,11 @@ export async function startSyncKeepAlive(): Promise<boolean> {
   }
 }
 
-/** Stops the loop when the sync finishes, fails, or the user turns it off. */
+/** Stops the loop and releases wake lock when sync finishes or user turns it off. */
 export function stopSyncKeepAlive(): void {
   wanted = false;
   removeRetryHandler();
+  releaseWakeLock();
   if (audio) {
     audio.pause();
     audio.currentTime = 0;

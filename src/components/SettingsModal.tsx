@@ -362,17 +362,24 @@ export function SettingsModal({
                   <div>
                     <p className="text-[11px] font-medium text-ink">Background keep-alive</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
-                      Turns on automatically while a sync runs and off when it finishes. Plays a
-                      near-silent loop and shows a media notification so Chrome does not suspend the
-                      upload when you switch apps. Closing the app still stops it.
+                      Keeps sync running in the background when you switch tabs or apps using an
+                      inaudible audio loop and screen wake lock. Turns on automatically during sync or
+                      can be toggled manually. (In Brave: ensure &ldquo;Background play&rdquo; is
+                      enabled in Brave Settings).
                     </p>
                   </div>
-                  <span
+                  <button
+                    type="button"
                     role="switch"
                     aria-checked={folderSync.keepAlive}
-                    aria-label="Background keep-alive, automatic"
-                    title="Starts and stops automatically with folder sync"
-                    className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                    aria-label="Toggle background keep-alive"
+                    title={
+                      folderSync.keepAlive
+                        ? 'Turn off background keep-alive'
+                        : 'Turn on background keep-alive'
+                    }
+                    onClick={() => void folderSync.toggleKeepAlive()}
+                    className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
                       folderSync.keepAlive ? 'bg-accent' : 'bg-line'
                     }`}
                   >
@@ -381,7 +388,7 @@ export function SettingsModal({
                         folderSync.keepAlive ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
-                  </span>
+                  </button>
                 </div>
 
                 {folderSync.phase === 'needs-permission' ? (
