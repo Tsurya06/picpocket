@@ -29,6 +29,16 @@ export interface DirectoryScan {
   readonly skipped: number;
 }
 
+/** Persisted WhatsApp folder plus its daily automatic-backup preference. */
+export interface WhatsAppFolderConfig {
+  readonly name: string;
+  readonly handle: FileSystemDirectoryHandle;
+  readonly lastSyncAt: number | null;
+  readonly autoSync: boolean;
+  readonly scheduleTime: string;
+  readonly savedAt: number;
+}
+
 export interface BackupChunkRef {
   readonly index: number;
   readonly messageId: number;

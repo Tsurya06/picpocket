@@ -9,6 +9,7 @@ import {
 import {
   AlertCircle,
   CheckCircle2,
+  Clock3,
   CloudUpload,
   Database,
   Download,
@@ -31,6 +32,7 @@ import type {
 } from '../types/whatsapp';
 import {
   backupSharedFiles,
+  clearWhatsAppFolderConfig,
   getLocalWhatsAppSummary,
   loadRemoteWhatsAppBackup,
   pickWhatsAppDirectory,
@@ -42,11 +44,13 @@ import {
   type RemoteBackup,
 } from '../services/whatsapp/whatsappSync';
 import { Button } from './ui/Button';
+import type { WhatsAppAutoSyncApi } from '../hooks/useWhatsAppAutoSync';
 
 export interface WhatsAppBackupViewProps {
   readonly channelId: string | null;
   readonly channelTitle: string | null;
   readonly onChooseChannel: () => void;
+  readonly autoSync: WhatsAppAutoSyncApi;
   readonly sharedFiles: readonly File[];
   readonly onSharedConsumed: () => void;
 }
@@ -160,6 +164,7 @@ export function WhatsAppBackupView({
   channelId,
   channelTitle,
   onChooseChannel,
+  autoSync,
   sharedFiles,
   onSharedConsumed,
 }: WhatsAppBackupViewProps) {
@@ -230,6 +235,12 @@ export function WhatsAppBackupView({
     void loadRemote();
   }, [refreshSummary, loadRemote]);
 
+  useEffect(() => {
+    if (autoSync.version === 0) return;
+    void refreshSummary();
+    void loadRemote();
+  }, [autoSync.version, loadRemote, refreshSummary]);
+
   const applyScan = async (result: DirectoryScan): Promise<void> => {
     setScan(result);
     setPlan(null);
@@ -257,6 +268,7 @@ export function WhatsAppBackupView({
     try {
       const result = await pickWhatsAppDirectory();
       await applyScan(result);
+      await autoSync.refresh();
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
         setError(describeError(caught));
@@ -272,6 +284,7 @@ export function WhatsAppBackupView({
     if (!list || list.length === 0) return;
     const result = scanWhatsAppFiles(list);
     event.target.value = '';
+    void clearWhatsAppFolderConfig().then(() => autoSync.refresh());
     void applyScan(result);
   };
 
@@ -292,6 +305,7 @@ export function WhatsAppBackupView({
       });
       setScan(null);
       setPlan(null);
+      await autoSync.markSynced(Date.now());
       await refreshSummary();
       await loadRemote();
       const mediaText = `${result.uploadedMedia} new media file${result.uploadedMedia === 1 ? '' : 's'}`;
@@ -504,6 +518,72 @@ export function WhatsAppBackupView({
               WhatsApp saved to Files.
             </p>
           ) : null}
+
+          <div className="rounded-2xl border border-line bg-surface/50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-medium text-ink">
+                  <Clock3 size={15} className="text-accent" /> Automatic backup
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                  Runs once a day at your chosen time while PicPocket is open. Browsers cannot wake
+                  a closed app, so an overnight schedule runs the next time you open it.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoSync.autoSync}
+                aria-label="Automatic WhatsApp backup"
+                disabled={!autoSync.config}
+                onClick={() => void autoSync.setAutoSync(!autoSync.autoSync)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-40 ${
+                  autoSync.autoSync ? 'bg-accent' : 'bg-line'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                    autoSync.autoSync ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {autoSync.config ? (
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-3">
+                <label className="flex items-center gap-2 text-[11px] font-medium text-muted">
+                  Backup time
+                  <input
+                    type="time"
+                    value={autoSync.scheduleTime}
+                    onChange={(event) => void autoSync.setScheduleTime(event.target.value)}
+                    className="h-8 rounded-lg border border-line bg-app px-2 text-xs text-ink focus:border-accent focus:outline-none"
+                  />
+                </label>
+                <p className="text-[11px] text-muted">
+                  {autoSync.lastSyncAt
+                    ? `Last check ${formatFullDate(autoSync.lastSyncAt)}`
+                    : 'Not checked automatically yet'}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-[11px] leading-relaxed text-muted">
+                {pickerAvailable
+                  ? 'Choose a WhatsApp folder above to enable scheduled backups.'
+                  : 'Scheduled backups need a browser that can remember folder access. This browser can upload on demand only.'}
+              </p>
+            )}
+
+            {autoSync.error ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-danger">{autoSync.error}</p>
+            ) : null}
+            {autoSync.progress &&
+            (autoSync.phase === 'scanning' || autoSync.phase === 'uploading') ? (
+              <div className="mt-3">
+                <ProgressBar progress={autoSync.progress} />
+              </div>
+            ) : null}
+          </div>
 
           {scan ? (
             <div className="rounded-2xl border border-line bg-surface/50 p-4">

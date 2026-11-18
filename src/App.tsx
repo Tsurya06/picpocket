@@ -21,8 +21,10 @@ import { useChannelSelector } from './hooks/useChannelSelector';
 import { usePhotoTimeline } from './hooks/usePhotoTimeline';
 import { useUploader } from './hooks/useUploader';
 import { useFolderSync } from './hooks/useFolderSync';
+import { useWhatsAppAutoSync } from './hooks/useWhatsAppAutoSync';
 import { useChannelVaults } from './hooks/useChannelVaults';
 import { usePullToRefresh } from './hooks/usePullToRefresh';
+import { clearThumbnailCache } from './hooks/useThumbnail';
 import { clearFullMediaCache, getFullMediaUrl } from './hooks/useFullMedia';
 import { describeError } from './services/telegram/mtprotoClient';
 import { deleteMediaItems } from './services/media/deletion';
@@ -180,6 +182,11 @@ export default function App() {
     onUploaded: handleUploadsFinished,
   });
 
+  const whatsappAutoSync = useWhatsAppAutoSync({
+    enabled: ready,
+    channelId: backupChannelId,
+  });
+
   const backupChannelTitle =
     channels.channels.find((channel) => channel.id === backupChannelId)?.title ??
     (backupChannelId ? 'Selected channel' : null);
@@ -256,12 +263,24 @@ export default function App() {
     }
   }, [channels.selectedIds, viewChannelId]);
 
+  // The WhatsApp tab only exists on phones. If a resized window crosses into
+  // the desktop layout, return to the gallery instead of an unreachable view.
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const onChange = (event: MediaQueryListEvent): void => {
+      if (event.matches) setView((current) => (current === 'whatsapp' ? 'photos' : current));
+    };
+    desktop.addEventListener('change', onChange);
+    return () => desktop.removeEventListener('change', onChange);
+  }, []);
+
   useEffect(() => {
     if (!ready) {
       setSelectorOpen(false);
       setSettingsOpen(false);
       setLightboxId(null);
       autoOpenedRef.current = false;
+      clearThumbnailCache();
     }
   }, [ready]);
 
@@ -430,6 +449,7 @@ export default function App() {
     setSelectorOpen(false);
     setLightboxId(null);
     clearFullMediaCache();
+    clearThumbnailCache();
     void auth.lock();
   }, [auth]);
 
@@ -438,6 +458,7 @@ export default function App() {
     setSelectorOpen(false);
     setLightboxId(null);
     clearFullMediaCache();
+    clearThumbnailCache();
     void auth.reset();
   }, [auth]);
 
@@ -717,6 +738,7 @@ export default function App() {
               channelId={backupChannelId}
               channelTitle={backupChannelTitle}
               onChooseChannel={() => setBackupPickerOpen(true)}
+              autoSync={whatsappAutoSync}
               sharedFiles={sharedFiles}
               onSharedConsumed={() => setSharedFiles([])}
             />

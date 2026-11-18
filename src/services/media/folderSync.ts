@@ -4,6 +4,7 @@ import type {
   FolderSyncProgress,
 } from '../../types/folderSync';
 import { getFolderSyncFiles, getSetting, putFolderSyncFiles, setSetting } from '../cache/db';
+import { DEFAULT_SYNC_TIME, normalizeSyncTime } from '../../lib/syncSchedule';
 import { uploadBatch } from './uploader';
 
 /**
@@ -12,8 +13,8 @@ import { uploadBatch } from './uploader';
  * This uses the File System Access API, so it works on Chromium desktop and
  * Android Chromium builds. The browser only lets us read the folder after the
  * user grants permission; that handle is persisted in IndexedDB. Folder checks
- * run when the user opens the app (at most once a day) and uploads only files
- * whose relative path, size, or last-modified time changed.
+ * run once a day at the user's chosen time while the app is open, and upload
+ * only files whose relative path, size, or last-modified time changed.
  */
 
 const CONFIG_KEY = 'folder.sync.config';
@@ -220,6 +221,7 @@ export async function loadFolderConfig(): Promise<FolderSyncConfig | null> {
     handle: candidate.handle,
     lastSyncAt: typeof candidate.lastSyncAt === 'number' ? candidate.lastSyncAt : null,
     autoSync: candidate.autoSync !== false,
+    scheduleTime: normalizeSyncTime(candidate.scheduleTime),
     savedAt: typeof candidate.savedAt === 'number' ? candidate.savedAt : Date.now(),
   };
 }
@@ -280,6 +282,7 @@ export async function pickFolder(): Promise<FolderSyncConfig> {
     handle,
     lastSyncAt: null,
     autoSync: true,
+    scheduleTime: DEFAULT_SYNC_TIME,
     savedAt: Date.now(),
   };
   await saveFolderConfig(config);

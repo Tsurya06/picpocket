@@ -30,7 +30,8 @@ export function AppNav({ view, onChange }: AppNavProps) {
         aria-label="Sections"
         className="sticky top-[57px] hidden h-[calc(100dvh-57px)] w-[72px] shrink-0 flex-col gap-1 border-r border-line bg-app px-2 py-3 md:flex xl:w-56 xl:px-3"
       >
-        {ITEMS.map((item) => {
+        {/* WhatsApp import is a phone feature; laptops only browse Photos. */}
+        {ITEMS.filter((item) => item.id !== 'whatsapp').map((item) => {
           const Icon = item.icon;
           const active = view === item.id;
           return (

@@ -25,18 +25,22 @@ import type {
   SyncPlanSummary,
   WhatsAppBackupManifest,
   WhatsAppCategory,
+  WhatsAppFolderConfig,
   WhatsAppLocalSummary,
 } from '../../types/whatsapp';
 import { isWhatsAppBackupManifest } from '../../types/whatsapp';
 import {
+  getSetting,
   getWhatsAppBackup,
   getWhatsAppFiles,
   putWhatsAppBackup,
   putWhatsAppFiles,
+  setSetting,
   type WhatsAppBackupRow,
   type WhatsAppFileRow,
 } from '../cache/db';
 import { cryptoClient } from '../crypto/cryptoClient';
+import { DEFAULT_SYNC_TIME, normalizeSyncTime } from '../../lib/syncSchedule';
 import { uploadBatch } from '../media/uploader';
 import { backupChunkCaption, backupManifestCaption } from '../telegram/captions';
 import { telegramService } from '../telegram/mtprotoClient';
@@ -45,6 +49,7 @@ export const WHATSAPP_CHUNK_BYTES = 16 * 1024 * 1024;
 const MAX_SCAN_FILES = 60_000;
 const MAX_SCAN_DEPTH = 16;
 const MANIFEST_FILE_NAME = 'whatsapp_backup_manifest.enc';
+const CONFIG_KEY = 'whatsapp.sync.config';
 
 const DATABASE_PATTERN = /^msgstore.*\.db\.crypt1[45]$/i;
 const IGNORED_NAME = /^(\.|thumbs\.db$|desktop\.ini$)/i;
@@ -66,6 +71,11 @@ interface PickerWindow {
     id?: string;
     mode?: 'read' | 'readwrite';
   }) => Promise<FileSystemDirectoryHandle>;
+}
+
+interface PermissionHandle extends FileSystemDirectoryHandle {
+  queryPermission?: (descriptor: { mode: 'read' }) => Promise<PermissionState>;
+  requestPermission?: (descriptor: { mode: 'read' }) => Promise<PermissionState>;
 }
 
 interface RawEntry {
@@ -194,7 +204,69 @@ async function walkDirectory(
   }
 }
 
-/** Opens the native folder picker (Chromium/Edge desktop) and walks the tree. */
+export async function scanWhatsAppDirectory(
+  handle: FileSystemDirectoryHandle,
+): Promise<DirectoryScan> {
+  const raw: RawEntry[] = [];
+  const state: WalkState = { skipped: 0 };
+  await walkDirectory(handle, '', raw, 0, state);
+  return buildScan(handle.name, raw, state.skipped);
+}
+
+export async function whatsAppFolderPermission(
+  handle: FileSystemDirectoryHandle,
+): Promise<PermissionState> {
+  const candidate = handle as PermissionHandle;
+  if (typeof candidate.queryPermission !== 'function') return 'granted';
+  return candidate.queryPermission({ mode: 'read' });
+}
+
+export async function requestWhatsAppFolderPermission(
+  handle: FileSystemDirectoryHandle,
+): Promise<boolean> {
+  if ((await whatsAppFolderPermission(handle)) === 'granted') return true;
+  const candidate = handle as PermissionHandle;
+  if (typeof candidate.requestPermission !== 'function') return false;
+  return (await candidate.requestPermission({ mode: 'read' })) === 'granted';
+}
+
+export async function loadWhatsAppFolderConfig(): Promise<WhatsAppFolderConfig | null> {
+  const value = await getSetting<WhatsAppFolderConfig | null>(CONFIG_KEY, null);
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<WhatsAppFolderConfig>;
+  if (
+    typeof candidate.name !== 'string' ||
+    candidate.name.length === 0 ||
+    !candidate.handle ||
+    typeof candidate.handle !== 'object'
+  ) {
+    return null;
+  }
+  return {
+    name: candidate.name,
+    handle: candidate.handle,
+    lastSyncAt: typeof candidate.lastSyncAt === 'number' ? candidate.lastSyncAt : null,
+    autoSync: candidate.autoSync === true,
+    scheduleTime: normalizeSyncTime(candidate.scheduleTime),
+    savedAt: typeof candidate.savedAt === 'number' ? candidate.savedAt : Date.now(),
+  };
+}
+
+export async function saveWhatsAppFolderConfig(config: WhatsAppFolderConfig): Promise<void> {
+  await setSetting(CONFIG_KEY, config);
+}
+
+export async function clearWhatsAppFolderConfig(): Promise<void> {
+  await setSetting(CONFIG_KEY, null);
+}
+
+export async function markWhatsAppFolderSynced(at = Date.now()): Promise<void> {
+  const config = await loadWhatsAppFolderConfig();
+  if (!config) return;
+  await saveWhatsAppFolderConfig({ ...config, lastSyncAt: at });
+}
+
+/** Opens the native folder picker, walks the tree and remembers the handle. */
 export async function pickWhatsAppDirectory(): Promise<DirectoryScan> {
   const picker = (window as unknown as PickerWindow).showDirectoryPicker;
   if (!picker) {
@@ -204,10 +276,17 @@ export async function pickWhatsAppDirectory(): Promise<DirectoryScan> {
   }
 
   const handle = await picker.call(window, { id: 'whatsapp-vault', mode: 'read' });
-  const raw: RawEntry[] = [];
-  const state: WalkState = { skipped: 0 };
-  await walkDirectory(handle, '', raw, 0, state);
-  return buildScan(handle.name, raw, state.skipped);
+  const previous = await loadWhatsAppFolderConfig();
+  const scan = await scanWhatsAppDirectory(handle);
+  await saveWhatsAppFolderConfig({
+    name: handle.name,
+    handle,
+    lastSyncAt: null,
+    autoSync: previous?.autoSync ?? false,
+    scheduleTime: previous?.scheduleTime ?? DEFAULT_SYNC_TIME,
+    savedAt: Date.now(),
+  });
+  return scan;
 }
 
 /**

@@ -6,6 +6,8 @@ export interface FolderSyncConfig {
   readonly lastSyncAt: number | null;
   /** When false, the folder is only uploaded from the folder browser. */
   readonly autoSync: boolean;
+  /** Local wall-clock time for the once-a-day automatic check. */
+  readonly scheduleTime: string;
   readonly savedAt: number;
 }
 

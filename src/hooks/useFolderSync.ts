@@ -30,8 +30,7 @@ import {
   stopSyncKeepAlive,
   subscribeSyncKeepAlive,
 } from '../services/media/syncKeepAlive';
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+import { DEFAULT_SYNC_TIME, isSyncDue, normalizeSyncTime } from '../lib/syncSchedule';
 
 export interface FolderSyncApi {
   readonly supported: boolean;
@@ -46,7 +45,9 @@ export interface FolderSyncApi {
   readonly syncing: boolean;
   readonly keepAlive: boolean;
   readonly autoSync: boolean;
+  readonly scheduleTime: string;
   readonly setAutoSync: (value: boolean) => void;
+  readonly setScheduleTime: (value: string) => void;
   readonly listLocalFiles: () => Promise<readonly FolderLibraryEntry[]>;
   readonly uploadLocalFiles: (
     entries: readonly FolderLibraryEntry[],
@@ -96,6 +97,8 @@ export function useFolderSync({
   const [error, setError] = useState<string | null>(null);
   const [keepAlive, setKeepAliveState] = useState(false);
   const [autoSync, setAutoSyncState] = useState(true);
+  const [scheduleTime, setScheduleTimeState] = useState(DEFAULT_SYNC_TIME);
+  const [scheduleTick, setScheduleTick] = useState(0);
   const syncingRef = useRef(false);
   const entryUploadRef = useRef(false);
   const autoAttemptedRef = useRef(false);
@@ -118,6 +121,7 @@ export function useFolderSync({
         setFallbackConfig(fallback);
         if (fallback) setFallbackName(fallback.name);
         setAutoSyncState(value?.autoSync ?? true);
+        setScheduleTimeState(value?.scheduleTime ?? DEFAULT_SYNC_TIME);
         setLoaded(true);
       })
       .catch(() => {
@@ -174,13 +178,29 @@ export function useFolderSync({
     runRef.current = run;
   }, [run]);
 
-  // Once per app session, and only if the last successful check is over a day old.
+  // Re-check the clock while the app stays open, so the chosen time can fire
+  // without a reload. Browsers cannot wake a closed PWA at an arbitrary time.
+  useEffect(() => {
+    if (!enabled || !autoSync) return;
+    const timer = setInterval(() => setScheduleTick((value) => value + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [autoSync, enabled]);
+
+  useEffect(() => {
+    autoAttemptedRef.current = false;
+  }, [autoSync, scheduleTime]);
+
+  useEffect(() => {
+    autoAttemptedRef.current = false;
+  }, [config?.lastSyncAt]);
+
+  // Once per app session, and only after the daily scheduled time has passed.
   // This deliberately does not depend on `run`: the timeline callback changes
   // after ordinary renders, and cancelling the pending permission check would
   // silently skip the automatic sync.
   useEffect(() => {
     if (!enabled || !loaded || !config || !channelId || !autoSync || autoAttemptedRef.current) return;
-    if (config.lastSyncAt !== null && Date.now() - config.lastSyncAt < DAY_MS) return;
+    if (!isSyncDue(config.lastSyncAt, scheduleTime)) return;
 
     autoAttemptedRef.current = true;
     let cancelled = false;
@@ -200,7 +220,7 @@ export function useFolderSync({
     return () => {
       cancelled = true;
     };
-  }, [autoSync, channelId, config, enabled, loaded]);
+  }, [autoSync, channelId, config, enabled, loaded, scheduleTick, scheduleTime]);
 
   const chooseFolder = useCallback(async (): Promise<void> => {
     if (syncingRef.current) return;
@@ -214,6 +234,7 @@ export function useFolderSync({
       const next = await pickFolder();
       setConfig(next);
       setAutoSyncState(true);
+      setScheduleTimeState(next.scheduleTime);
       setProgress(null);
       setPhase('idle');
       await run(next, false);
@@ -282,6 +303,16 @@ export function useFolderSync({
     [config],
   );
 
+  const setScheduleTime = useCallback(
+    (value: string): void => {
+      const nextTime = normalizeSyncTime(value);
+      setScheduleTimeState(nextTime);
+      setConfig((current) => (current ? { ...current, scheduleTime: nextTime } : current));
+      if (config) void saveFolderConfig({ ...config, scheduleTime: nextTime });
+    },
+    [config],
+  );
+
   const listLocalFiles = useCallback(async (): Promise<readonly FolderLibraryEntry[]> => {
     if (!config || !channelId) return [];
     return scanFolderLibrary(config, channelId);
@@ -315,6 +346,7 @@ export function useFolderSync({
     setFallbackName(null);
     setFallbackConfig(null);
     setAutoSyncState(true);
+    setScheduleTimeState(DEFAULT_SYNC_TIME);
     setProgress(null);
     setPhase('idle');
     setError(null);
@@ -333,7 +365,9 @@ export function useFolderSync({
     syncing: syncingRef.current || phase === 'scanning' || phase === 'uploading',
     keepAlive,
     autoSync,
+    scheduleTime,
     setAutoSync,
+    setScheduleTime,
     listLocalFiles,
     uploadLocalFiles,
     chooseFolder,

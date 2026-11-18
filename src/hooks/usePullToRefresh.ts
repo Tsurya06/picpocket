@@ -6,8 +6,8 @@ const MAX_DISTANCE = 110;
 
 /**
  * Pull-down gesture that refreshes the photo timeline instead of letting the
- * browser reload the whole PWA. Works anywhere over the gallery, not only at
- * the very top of the page, and ignores horizontal swipes.
+ * browser reload the whole PWA. It only arms when the page is already at the
+ * top, so scrolling up from the bottom of a long gallery never refreshes it.
  */
 export function usePullToRefresh(
   target: RefObject<HTMLElement | null>,
@@ -35,8 +35,10 @@ export function usePullToRefresh(
       setDistance(0);
     };
 
+    const atTop = (): boolean => window.scrollY <= 1;
+
     const onStart = (event: TouchEvent): void => {
-      if (event.touches.length !== 1) {
+      if (event.touches.length !== 1 || !atTop()) {
         reset();
         return;
       }
@@ -53,11 +55,11 @@ export function usePullToRefresh(
       const dx = touch.clientX - start.x;
       const dy = touch.clientY - start.y;
 
-      // Stop the browser's own pull-to-refresh / overscroll from committing
-      // before our gesture has decided what to do. Only relevant at the top,
-      // where native refresh can fire.
-      if (dy > 0 && window.scrollY <= 8) {
-        event.preventDefault();
+      // A gesture that began while the gallery was scrolled down belongs to
+      // the list, never to refresh — even once it reaches the top.
+      if (!atTop()) {
+        reset();
+        return;
       }
 
       if (!pullingRef.current) {
@@ -74,6 +76,8 @@ export function usePullToRefresh(
         pullingRef.current = true;
       }
 
+      // Stop the browser's own pull-to-refresh / overscroll now that we own
+      // the gesture. This only happens at the top of the page.
       event.preventDefault();
       const next = Math.min(MAX_DISTANCE, Math.max(0, dy * 0.55));
       distanceRef.current = next;

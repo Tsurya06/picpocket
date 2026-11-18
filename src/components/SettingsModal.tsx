@@ -296,7 +296,7 @@ export function SettingsModal({
                     <p className="text-[11px] font-medium text-ink">Automatic sync</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-muted">
                       {folderSync.autoSync
-                        ? 'Checks the folder when PicPocket opens, at most once a day.'
+                        ? 'Checks the folder once a day at your chosen time while PicPocket is open.'
                         : 'Manual only. Browse the folder and upload the files you choose.'}
                     </p>
                   </div>
@@ -317,6 +317,18 @@ export function SettingsModal({
                     />
                   </button>
                 </div>
+
+                {folderSync.autoSync ? (
+                  <label className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3 text-[11px] font-medium text-muted">
+                    Daily check time
+                    <input
+                      type="time"
+                      value={folderSync.scheduleTime}
+                      onChange={(event) => folderSync.setScheduleTime(event.target.value)}
+                      className="h-8 rounded-lg border border-line bg-app px-2 text-xs text-ink focus:border-accent focus:outline-none"
+                    />
+                  </label>
+                ) : null}
 
                 {folderSync.progress &&
                 (folderSync.phase === 'scanning' ||
@@ -405,9 +417,10 @@ export function SettingsModal({
 
             {folderSync.selectionMode === 'handle' ? (
               <p className="mt-3 text-[11px] leading-relaxed text-muted">
-                Folder checks run when you open PicPocket, at most once a day, while Automatic sync
-                is on. Background keep-alive switches on automatically with each sync using
-                Chromium's audible-media exemption; closing the app still stops the sync.
+                Folder checks run once a day at your chosen time while PicPocket is open. Browsers
+                cannot wake a closed app, so a missed time runs the next time you open it.
+                Background keep-alive switches on automatically with each sync using Chromium's
+                audible-media exemption; closing the app still stops the sync.
               </p>
             ) : null}
           </div>

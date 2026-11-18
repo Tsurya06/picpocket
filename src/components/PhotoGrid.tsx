@@ -1,5 +1,7 @@
 import {
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -10,8 +12,7 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { Check, File, FileArchive, FileText, ImageOff, Lock, Play } from 'lucide-react';
 import type { MediaItem, MonthGroup } from '../types/media';
 import { formatBytes, formatDuration } from '../lib/format';
-import { useThumbnail } from '../hooks/useThumbnail';
-import { useNearViewport } from '../hooks/useNearViewport';
+import { prefetchThumbnail, useThumbnail } from '../hooks/useThumbnail';
 import { SkeletonGrid } from './ui/Spinner';
 
 export interface PhotoGridProps {
@@ -31,6 +32,10 @@ const MIN_TILE = 148;
 const GAP = 4;
 const MONTH_ROW = 56;
 const DAY_ROW = 34;
+/** Rows kept mounted just outside the viewport so fast scrolling is smooth. */
+const OVERSCAN_ROWS = 3;
+/** Extra rows whose previews are warmed above and below the mounted window. */
+const PREFETCH_ROWS = 4;
 
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
@@ -63,8 +68,9 @@ function MediaTile({
   onLongPress: (item: MediaItem) => void;
   onToggleSelect: (item: MediaItem) => void;
 }) {
-  const [tileRef, nearViewport] = useNearViewport<HTMLButtonElement>();
-  const { url, loading, failed } = useThumbnail(item, nearViewport);
+  // Rows only exist when they are visible or inside the small virtual buffer,
+  // so every mounted tile can load its preview without a per-tile observer.
+  const { url, loading, failed } = useThumbnail(item);
   const sizing = fill ? 'h-full w-full' : 'w-full';
 
   const timerRef = useRef<number | null>(null);
@@ -143,7 +149,6 @@ function MediaTile({
     const FileIcon = fileIconFor(item);
     return (
       <button
-        ref={tileRef}
         type="button"
         {...interactions}
         className={`tile-in group relative block overflow-hidden rounded-[var(--radius-tile)] border border-line bg-elevated text-left focus-visible:outline-offset-4 ${sizing}`}
@@ -178,7 +183,6 @@ function MediaTile({
 
   return (
     <button
-      ref={tileRef}
       type="button"
       {...interactions}
       className={`tile-in group relative block overflow-hidden rounded-[var(--radius-tile)] bg-surface text-left focus-visible:outline-offset-4 ${sizing}`}
@@ -276,8 +280,11 @@ export function PhotoGrid({
   onToggleSelect,
 }: PhotoGridProps) {
   const selecting = selectedIds.size > 0;
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef(onLoadMore);
+  useEffect(() => {
+    loadMoreRef.current = onLoadMore;
+  }, [onLoadMore]);
   const [width, setWidth] = useState(0);
   const [offsetTop, setOffsetTop] = useState(0);
 
@@ -294,20 +301,18 @@ export function PhotoGrid({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  // The list sits below a header whose height can change as banners and
+  // counts arrive. Remeasure after layout so scrollMargin tracks it exactly.
+  useLayoutEffect(() => {
     const element = listRef.current;
     if (!element) return;
-    const measure = (): void => {
-      setOffsetTop(element.getBoundingClientRect().top + window.scrollY);
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [groups, width]);
+    const next = element.getBoundingClientRect().top + window.scrollY;
+    setOffsetTop((current) => (Math.abs(current - next) > 0.5 ? next : current));
+  });
 
   const columns = Math.max(2, Math.min(8, Math.floor((width + GAP) / (MIN_TILE + GAP)) || 2));
   const tileSize = width > 0 ? (width - GAP * (columns - 1)) / columns : MIN_TILE;
-  const rows = buildRows(groups, columns);
+  const rows = useMemo(() => buildRows(groups, columns), [groups, columns]);
 
   const sizeOf = (row: GridRow | undefined): number => {
     if (!row) return tileSize + GAP;
@@ -319,7 +324,7 @@ export function PhotoGrid({
   const virtualizer = useWindowVirtualizer({
     count: rows.length,
     estimateSize: (index) => sizeOf(rows[index]),
-    overscan: 6,
+    overscan: OVERSCAN_ROWS,
     scrollMargin: offsetTop,
     getItemKey: (index) => rows[index]?.key ?? index,
   });
@@ -328,18 +333,31 @@ export function PhotoGrid({
     virtualizer.measure();
   }, [columns, tileSize, virtualizer]);
 
+  const virtualRows = virtualizer.getVirtualItems();
+  const firstVirtualIndex = virtualRows[0]?.index ?? 0;
+  const lastVirtualIndex = virtualRows[virtualRows.length - 1]?.index ?? -1;
+  const prefetchFrom = Math.max(0, firstVirtualIndex - PREFETCH_ROWS);
+  const prefetchTo = Math.min(rows.length - 1, lastVirtualIndex + PREFETCH_ROWS);
+
+  // Warm previews in both directions. The shared thumbnail cache keeps the
+  // bytes and object URL, so a row remounting after fast scrolling paints at
+  // once instead of falling back to a skeleton.
   useEffect(() => {
-    const target = sentinelRef.current;
-    if (!target || !hasMore) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
-      },
-      { rootMargin: '900px 0px' },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [hasMore, onLoadMore]);
+    for (let index = prefetchFrom; index <= prefetchTo; index += 1) {
+      const row = rows[index];
+      if (row?.kind !== 'items') continue;
+      for (const item of row.items) prefetchThumbnail(item);
+    }
+  }, [prefetchFrom, prefetchTo, rows]);
+
+  // Page the next batch in before the final mounted row is visible. The
+  // timeline's own busy guard ignores calls while a page is already in flight,
+  // and a failed load can be retried on the next scroll.
+  useEffect(() => {
+    if (!hasMore || loadingMore || lastVirtualIndex < 0) return;
+    if (lastVirtualIndex < rows.length - 1 - PREFETCH_ROWS) return;
+    loadMoreRef.current();
+  }, [hasMore, lastVirtualIndex, loadingMore, rows.length]);
 
   if (loading && groups.length === 0) {
     return (
@@ -355,8 +373,6 @@ export function PhotoGrid({
   if (groups.length === 0) {
     return <div className="px-3 pb-24 sm:px-6">{emptyState}</div>;
   }
-
-  const virtualRows = virtualizer.getVirtualItems();
 
   return (
     <div className="px-3 pb-24 sm:px-6">
@@ -420,8 +436,6 @@ export function PhotoGrid({
             );
           })}
         </div>
-
-        <div ref={sentinelRef} className="h-10" />
 
         {loadingMore ? (
           <div className="flex items-center justify-center py-6">
