@@ -121,6 +121,7 @@ export default function App() {
   const [encryptUploads, setEncryptUploads] = useState(readEncryptPreference);
   const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<AppView>('photos');
+  const [whatsappMounted, setWhatsappMounted] = useState(false);
   const [sharedFiles, setSharedFiles] = useState<File[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState<string | null>(null);
@@ -247,6 +248,13 @@ export default function App() {
       clearSelection();
     }
   }, [clearSelection, view]);
+
+  // Keep the WhatsApp view mounted once it has been opened. Unmounting it threw
+  // away the running scan/backup (its progress, scan summary and abort handle),
+  // so tapping Photos mid-sync looked like the sync had died.
+  useEffect(() => {
+    if (view === 'whatsapp') setWhatsappMounted(true);
+  }, [view]);
 
   useEffect(() => {
     if (selectedIds.size === 0) return;
@@ -733,16 +741,20 @@ export default function App() {
           </div>
         ) : null}
           </main>
-          ) : (
-            <WhatsAppBackupView
-              channelId={backupChannelId}
-              channelTitle={backupChannelTitle}
-              onChooseChannel={() => setBackupPickerOpen(true)}
-              autoSync={whatsappAutoSync}
-              sharedFiles={sharedFiles}
-              onSharedConsumed={() => setSharedFiles([])}
-            />
-          )}
+          ) : null}
+
+          {whatsappMounted || view === 'whatsapp' ? (
+            <div className={view === 'whatsapp' ? '' : 'hidden'}>
+              <WhatsAppBackupView
+                channelId={backupChannelId}
+                channelTitle={backupChannelTitle}
+                onChooseChannel={() => setBackupPickerOpen(true)}
+                autoSync={whatsappAutoSync}
+                sharedFiles={sharedFiles}
+                onSharedConsumed={() => setSharedFiles([])}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
