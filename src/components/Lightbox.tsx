@@ -13,7 +13,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import type { MediaItem } from '../types/media';
-import { formatBytes, formatDuration, formatFullDate } from '../lib/format';
+import { formatBytes, formatDuration, formatFullDate, formatSpeed } from '../lib/format';
 import { prefetchFullMedia, useFullMedia } from '../hooks/useFullMedia';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { Spinner } from './ui/Spinner';
@@ -357,6 +357,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
               <p className="text-xs text-white/70">
                 {item.source === 'vault' ? 'Downloading & decrypting…' : 'Downloading original…'}
                 {media.progress > 0 ? ` ${Math.round(media.progress * 100)}%` : ''}
+                {media.speedBytesPerSec > 0 ? ` · ${formatSpeed(media.speedBytesPerSec)}` : ''}
               </p>
             </div>
           </div>
@@ -375,6 +376,7 @@ export function Lightbox({ items, index, onIndexChange, onClose, onDelete }: Lig
           <div className="pointer-events-none absolute bottom-28 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-[11px] text-white/70 backdrop-blur">
             <Spinner size={12} />
             Loading{media.progress > 0 ? ` ${Math.round(media.progress * 100)}%` : '…'}
+            {media.speedBytesPerSec > 0 ? ` · ${formatSpeed(media.speedBytesPerSec)}` : ''}
           </div>
         ) : null}
 

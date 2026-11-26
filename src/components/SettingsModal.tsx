@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import type { TelegramAccount, ThemeMode, VaultProfile } from '../types/media';
 import type { FolderSyncApi } from '../hooks/useFolderSync';
-import { formatBytes, formatFullDate } from '../lib/format';
+import { formatBytes, formatFullDate, formatSpeed } from '../lib/format';
 import { clearAllMediaCache, getCacheStats } from '../services/cache/db';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
@@ -339,7 +339,12 @@ export function SettingsModal({
                       <span className="min-w-0 truncate text-ink">{folderSync.progress.label}</span>
                       <span className="shrink-0 tabular-nums text-muted">
                         {folderSync.progress.pending > 0
-                          ? `${folderSync.progress.uploaded}/${folderSync.progress.pending}`
+                          ? `${folderSync.progress.uploaded}/${folderSync.progress.pending}${
+                              folderSync.phase === 'uploading' &&
+                              folderSync.progress.speedBytesPerSec
+                                ? ` · ${formatSpeed(folderSync.progress.speedBytesPerSec)}`
+                                : ''
+                            }`
                           : 'Up to date'}
                       </span>
                     </div>

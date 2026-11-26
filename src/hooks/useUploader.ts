@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { UploadProgress, UploadResult } from '../types/media';
+import { createSpeedTracker } from '../lib/format';
 import { UPLOAD_SKIPPED, uploadBatch } from '../services/media/uploader';
 
 export interface UploaderApi {
@@ -47,6 +48,7 @@ export function useUploader(onFinished?: () => void): UploaderApi {
       let failed = 0;
       let cancelled = 0;
       const failures: { name: string; reason: string }[] = [];
+      const speedTracker = createSpeedTracker();
 
       setProgress({
         total: files.length,
@@ -81,14 +83,35 @@ export function useUploader(onFinished?: () => void): UploaderApi {
                 : current,
             );
           },
-          onItemProgress: (_index, fraction) => {
+          onItemProgress: (index, fraction, uploadedBytes) => {
+            const bytes = uploadedBytes ?? (files[index]?.size ?? 0) * fraction;
+            const speedBytesPerSec = bytes > 0 ? speedTracker.update(bytes) : 0;
             setProgress((current) =>
-              current ? { ...current, currentFraction: fraction, processing: false } : current,
+              current
+                ? {
+                    ...current,
+                    currentFraction: fraction,
+                    speedBytesPerSec: speedBytesPerSec > 0 ? speedBytesPerSec : current.speedBytesPerSec,
+                    processing: false,
+                  }
+                : current,
             );
           },
-          onBundleProgress: (label) => {
+          onBundleProgress: (label, _fraction, uploadedBytes) => {
+            const speedBytesPerSec =
+              uploadedBytes !== undefined && uploadedBytes > 0
+                ? speedTracker.update(uploadedBytes)
+                : 0;
             setProgress((current) =>
-              current ? { ...current, currentName: label, processing: true } : current,
+              current
+                ? {
+                    ...current,
+                    currentName: label,
+                    speedBytesPerSec:
+                      speedBytesPerSec > 0 ? speedBytesPerSec : current.speedBytesPerSec,
+                    processing: uploadedBytes === undefined,
+                  }
+                : current,
             );
           },
           onFloodWait: (seconds) => {

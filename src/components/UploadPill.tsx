@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Lock, Upload, X } from 'lucide-react';
 import type { UploadProgress, UploadResult } from '../types/media';
+import { formatSpeed } from '../lib/format';
 import { Spinner } from './ui/Spinner';
 
 export interface UploadPillProps {
@@ -100,6 +101,9 @@ export function UploadPill({
                   : progress.currentName}
                 {' · '}
                 {Math.round(overall * 100)}%
+                {!progress.processing && progress.speedBytesPerSec
+                  ? ` · ${formatSpeed(progress.speedBytesPerSec)}`
+                  : ''}
               </>
             )}
           </p>

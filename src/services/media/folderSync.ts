@@ -4,6 +4,7 @@ import type {
   FolderSyncProgress,
 } from '../../types/folderSync';
 import { getFolderSyncFiles, getSetting, putFolderSyncFiles, setSetting } from '../cache/db';
+import { createSpeedTracker } from '../../lib/format';
 import { DEFAULT_SYNC_TIME, normalizeSyncTime } from '../../lib/syncSchedule';
 import { uploadBatch } from './uploader';
 
@@ -410,6 +411,8 @@ async function uploadScannedEntries({
 }: UploadScannedEntriesInput): Promise<FolderUploadResult> {
   const failures: string[] = [];
   let uploaded = 0;
+  const speedTracker = createSpeedTracker();
+  let lastLabel = 'Uploading…';
 
   for (let start = 0; start < entries.length; start += BATCH_SIZE) {
     const batch = entries.slice(start, start + BATCH_SIZE);
@@ -419,9 +422,10 @@ async function uploadScannedEntries({
       files: batch.map((entry) => entry.file),
       encrypt,
       onItemStart: (_index, file) => {
+        lastLabel = `Uploading ${file.name}`;
         onProgress({
           phase: 'uploading',
-          label: `Uploading ${file.name}`,
+          label: lastLabel,
           found,
           pending,
           uploaded,
@@ -429,7 +433,26 @@ async function uploadScannedEntries({
           bytes,
         });
       },
-      onBundleProgress: (label) => {
+      onItemProgress: (index, fraction, uploadedBytes) => {
+        const currentBytes = uploadedBytes ?? (batch[index]?.file.size ?? 0) * fraction;
+        const speedBytesPerSec = currentBytes > 0 ? speedTracker.update(currentBytes) : 0;
+        if (speedBytesPerSec > 0) {
+          onProgress({
+            phase: 'uploading',
+            label: lastLabel,
+            found,
+            pending,
+            uploaded,
+            failed: failures.length,
+            bytes,
+            speedBytesPerSec,
+          });
+        }
+      },
+      onBundleProgress: (label, _fraction, uploadedBytes) => {
+        lastLabel = label;
+        const speedBytesPerSec =
+          uploadedBytes !== undefined && uploadedBytes > 0 ? speedTracker.update(uploadedBytes) : 0;
         onProgress({
           phase: 'uploading',
           label,
@@ -438,6 +461,7 @@ async function uploadScannedEntries({
           uploaded,
           failed: failures.length,
           bytes,
+          ...(speedBytesPerSec > 0 ? { speedBytesPerSec } : {}),
         });
       },
     });

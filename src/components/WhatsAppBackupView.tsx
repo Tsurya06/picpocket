@@ -22,7 +22,7 @@ import {
   Smartphone,
   UploadCloud,
 } from 'lucide-react';
-import { formatBytes, formatFullDate, humanDayLabel } from '../lib/format';
+import { createSpeedTracker, formatBytes, formatFullDate, formatSpeed, humanDayLabel } from '../lib/format';
 import type {
   BackupProgress,
   DirectoryScan,
@@ -94,6 +94,21 @@ function ProgressBar({ progress }: { progress: BackupProgress }) {
   const percent = Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100);
   // A folder walk has no known total, so a 0% bar looks frozen; show activity instead.
   const scanning = progress.phase === 'scanning';
+  const trackerRef = useRef(createSpeedTracker());
+  const [speedBytesPerSec, setSpeedBytesPerSec] = useState(0);
+
+  useEffect(() => {
+    if (progress.phase !== 'database' && progress.phase !== 'media' && progress.phase !== 'restore') {
+      trackerRef.current.reset();
+      setSpeedBytesPerSec(0);
+      return;
+    }
+    const next = trackerRef.current.update(progress.bytesDone);
+    if (next > 0) setSpeedBytesPerSec(next);
+  }, [progress.bytesDone, progress.phase]);
+
+  const speedLabel = formatSpeed(speedBytesPerSec);
+
   return (
     <div className="space-y-2" aria-live="polite">
       <div className="flex items-center justify-between gap-3 text-xs">
@@ -102,7 +117,11 @@ function ProgressBar({ progress }: { progress: BackupProgress }) {
           <span className="truncate text-ink">{progress.label}</span>
         </span>
         <span className="shrink-0 font-medium tabular-nums text-muted">
-          {scanning ? `${progress.filesDone.toLocaleString()} files` : `${percent}%`}
+          {scanning
+            ? `${progress.filesDone.toLocaleString()} files`
+            : speedLabel
+              ? `${speedLabel} · ${percent}%`
+              : `${percent}%`}
         </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-surface">

@@ -27,6 +27,7 @@ export interface FolderSyncProgress {
   readonly uploaded: number;
   readonly failed: number;
   readonly bytes: number;
+  readonly speedBytesPerSec?: number;
 }
 
 export type FolderSyncPhase =

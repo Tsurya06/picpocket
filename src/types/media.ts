@@ -119,6 +119,8 @@ export interface UploadProgress {
   readonly currentName: string;
   /** 0..1 for the file currently being uploaded. */
   readonly currentFraction: number;
+  /** Smoothed upload throughput in bytes/second, when transferring bytes. */
+  readonly speedBytesPerSec?: number;
   /** True while the crypto worker is deriving keys or encoding thumbnails. */
   readonly processing: boolean;
   readonly currentIndex: number;

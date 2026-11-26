@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { MediaItem } from '../types/media';
+import { createSpeedTracker } from '../lib/format';
 import { cryptoClient } from '../services/crypto/cryptoClient';
 import { describeError, telegramService } from '../services/telegram/mtprotoClient';
 
@@ -7,6 +8,7 @@ export interface FullMediaState {
   readonly url: string | null;
   readonly loading: boolean;
   readonly progress: number;
+  readonly speedBytesPerSec: number;
   readonly error: string | null;
   readonly mimeType: string | null;
 }
@@ -15,6 +17,7 @@ const idle: FullMediaState = {
   url: null,
   loading: false,
   progress: 0,
+  speedBytesPerSec: 0,
   error: null,
   mimeType: null,
 };
@@ -54,7 +57,10 @@ export function clearFullMediaCache(): void {
   inflight.clear();
 }
 
-async function load(item: MediaItem, onProgress?: (fraction: number) => void): Promise<CachedMedia> {
+async function load(
+  item: MediaItem,
+  onProgress?: (fraction: number, loadedBytes: number) => void,
+): Promise<CachedMedia> {
   const existing = cache.get(item.id);
   if (existing) {
     touch(item.id, existing);
@@ -149,6 +155,7 @@ export function useFullMedia(item: MediaItem | null, enabled = true): FullMediaS
         url: cached.url,
         loading: false,
         progress: 1,
+        speedBytesPerSec: 0,
         error: null,
         mimeType: cached.mimeType,
       });
@@ -156,10 +163,18 @@ export function useFullMedia(item: MediaItem | null, enabled = true): FullMediaS
     }
 
     let cancelled = false;
+    const speedTracker = createSpeedTracker();
     setState({ ...idle, loading: true });
 
-    void load(item, (fraction) => {
-      if (!cancelled) setState((current) => ({ ...current, progress: fraction }));
+    void load(item, (fraction, loadedBytes) => {
+      if (cancelled) return;
+      const bytes = loadedBytes > 0 ? loadedBytes : item.size * fraction;
+      const speedBytesPerSec = bytes > 0 ? speedTracker.update(bytes) : 0;
+      setState((current) => ({
+        ...current,
+        progress: fraction,
+        speedBytesPerSec: speedBytesPerSec > 0 ? speedBytesPerSec : current.speedBytesPerSec,
+      }));
     })
       .then((result) => {
         if (cancelled) return;
@@ -167,6 +182,7 @@ export function useFullMedia(item: MediaItem | null, enabled = true): FullMediaS
           url: result.url,
           loading: false,
           progress: 1,
+          speedBytesPerSec: 0,
           error: null,
           mimeType: result.mimeType,
         });

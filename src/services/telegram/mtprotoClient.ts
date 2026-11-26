@@ -68,7 +68,7 @@ export interface UploadEncryptedInput {
   readonly bytes: ArrayBuffer;
   readonly fileName: string;
   readonly caption: string;
-  readonly onProgress?: (fraction: number) => void;
+  readonly onProgress?: (fraction: number, uploadedBytes?: number) => void;
   readonly signal?: AbortSignal;
   readonly onFloodWait?: (seconds: number) => void;
 }
@@ -81,7 +81,7 @@ export interface UploadDirectInput {
   readonly width?: number;
   readonly height?: number;
   readonly duration?: number;
-  readonly onProgress?: (fraction: number) => void;
+  readonly onProgress?: (fraction: number, uploadedBytes?: number) => void;
   readonly signal?: AbortSignal;
   readonly onFloodWait?: (seconds: number) => void;
 }
@@ -98,7 +98,7 @@ export interface UploadAlbumItem {
 export interface UploadAlbumInput {
   readonly channelId: string;
   readonly items: readonly UploadAlbumItem[];
-  readonly onProgress?: (fraction: number) => void;
+  readonly onProgress?: (fraction: number, uploadedBytes?: number) => void;
   readonly signal?: AbortSignal;
   readonly onFloodWait?: (seconds: number) => void;
 }
@@ -1050,7 +1050,7 @@ export class TelegramVaultService {
       fileName: input.fileName,
       fileMime: 'application/octet-stream',
       progressCallback: (uploadedBytes, total) =>
-        input.onProgress?.(clampFraction(uploadedBytes, total)),
+        input.onProgress?.(clampFraction(uploadedBytes, total), uploadedBytes),
       ...(input.signal ? { abortSignal: input.signal } : {}),
     });
 
@@ -1089,7 +1089,7 @@ export class TelegramVaultService {
       fileName: input.file.name,
       fileMime: mime,
       progressCallback: (uploadedBytes, total) =>
-        input.onProgress?.(clampFraction(uploadedBytes, total)),
+        input.onProgress?.(clampFraction(uploadedBytes, total), uploadedBytes),
       ...(input.signal ? { abortSignal: input.signal } : {}),
     });
 
@@ -1145,6 +1145,8 @@ export class TelegramVaultService {
       | ReturnType<typeof InputMedia.video>;
     const uploadedMedias: AlbumMedia[] = [];
 
+    let completedBytes = 0;
+
     for (let i = 0; i < totalItems; i += 1) {
       const item = input.items[i];
       if (!item) continue;
@@ -1157,10 +1159,11 @@ export class TelegramVaultService {
         fileMime: mime,
         progressCallback: (loaded, total) => {
           const itemFraction = clampFraction(loaded, total);
-          input.onProgress?.(clampFraction((i + itemFraction) / totalItems, 1));
+          input.onProgress?.(clampFraction((i + itemFraction) / totalItems, 1), completedBytes + loaded);
         },
         ...(input.signal ? { abortSignal: input.signal } : {}),
       });
+      completedBytes += item.file.size;
 
       const media =
         item.kind === 'video'

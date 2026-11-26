@@ -14,7 +14,7 @@ export interface UploadInput {
   readonly file: File;
   readonly encrypt: boolean;
   readonly caption?: string;
-  readonly onProgress?: (fraction: number) => void;
+  readonly onProgress?: (fraction: number, uploadedBytes?: number) => void;
   readonly signal?: AbortSignal;
   readonly onFloodWait?: (seconds: number) => void;
 }
@@ -35,8 +35,8 @@ export interface BatchUploadOptions {
   readonly encrypt: boolean;
   readonly signal?: AbortSignal;
   readonly onItemStart?: (index: number, file: File) => void;
-  readonly onItemProgress?: (index: number, fraction: number) => void;
-  readonly onBundleProgress?: (label: string, fraction: number) => void;
+  readonly onItemProgress?: (index: number, fraction: number, uploadedBytes?: number) => void;
+  readonly onBundleProgress?: (label: string, fraction: number, uploadedBytes?: number) => void;
   readonly onFloodWait?: (seconds: number) => void;
   /** Lets the caller drop files that are still queued. */
   readonly shouldSkip?: (index: number, file: File) => boolean;
@@ -75,8 +75,12 @@ const trimName = (name: string): string => {
   return `${name.slice(0, Math.max(1, MAX_NAME_LENGTH - extension.length))}${extension}`;
 };
 
-const report = (onProgress: ((fraction: number) => void) | undefined, value: number): void => {
-  onProgress?.(Math.min(1, Math.max(0, value)));
+const report = (
+  onProgress: ((fraction: number, uploadedBytes?: number) => void) | undefined,
+  value: number,
+  uploadedBytes?: number,
+): void => {
+  onProgress?.(Math.min(1, Math.max(0, value)), uploadedBytes);
 };
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -148,7 +152,8 @@ export async function uploadFile(input: UploadInput): Promise<UploadOutcome> {
       width: prepared.width || undefined,
       height: prepared.height || undefined,
       duration: prepared.duration,
-      onProgress: (fraction) => report(input.onProgress, 0.05 + fraction * 0.95),
+      onProgress: (fraction, uploadedBytes) =>
+        report(input.onProgress, 0.05 + fraction * 0.95, uploadedBytes),
       signal: input.signal,
       onFloodWait: input.onFloodWait,
     });
@@ -182,7 +187,8 @@ export async function uploadFile(input: UploadInput): Promise<UploadOutcome> {
     bytes: sealedOrigin,
     fileName: `${meta.mid}.bin`,
     caption,
-    onProgress: (fraction) => report(input.onProgress, 0.16 + fraction * 0.84),
+    onProgress: (fraction, uploadedBytes) =>
+      report(input.onProgress, 0.16 + fraction * 0.84, uploadedBytes),
     signal: input.signal,
     onFloodWait: input.onFloodWait,
   });
@@ -255,8 +261,12 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
       caption: bundleDocCaption(bundleId),
       signal,
       onFloodWait: options.onFloodWait,
-      onProgress: (fraction) =>
-        options.onBundleProgress?.('Uploading encrypted bundle…', 0.1 + fraction * 0.8),
+      onProgress: (fraction, uploadedBytes) =>
+        options.onBundleProgress?.(
+          'Uploading encrypted bundle…',
+          0.1 + fraction * 0.8,
+          uploadedBytes,
+        ),
     });
 
     const slicesByItem = new Map<number, { origin?: PackedSliceLocation; thumb?: PackedSliceLocation }>();
@@ -381,7 +391,8 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
               encrypt: false,
               signal,
               onFloodWait: options.onFloodWait,
-              onProgress: (frac) => options.onItemProgress?.(index, frac),
+              onProgress: (frac, uploadedBytes) =>
+                options.onItemProgress?.(index, frac, uploadedBytes),
             });
             results[index] = { file, outcome };
             index += 1;
@@ -414,9 +425,9 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
             })),
             signal,
             onFloodWait: options.onFloodWait,
-            onProgress: (fraction) => {
+            onProgress: (fraction, uploadedBytes) => {
               albumChunk.forEach((item) => {
-                options.onItemProgress?.(item.originalIndex, fraction);
+                options.onItemProgress?.(item.originalIndex, fraction, uploadedBytes);
               });
             },
           });
@@ -480,7 +491,8 @@ export async function uploadBatch(options: BatchUploadOptions): Promise<BatchUpl
           encrypt,
           signal,
           onFloodWait: options.onFloodWait,
-          onProgress: (fraction) => options.onItemProgress?.(index, 0.05 + fraction * 0.95),
+          onProgress: (fraction, uploadedBytes) =>
+            options.onItemProgress?.(index, 0.05 + fraction * 0.95, uploadedBytes),
         });
         results[index] = { file, outcome };
         if (index + 1 < files.length) {

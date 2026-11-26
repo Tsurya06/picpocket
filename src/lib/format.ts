@@ -8,6 +8,53 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(digits)} ${BYTE_UNITS[exponent] ?? 'B'}`;
 }
 
+export function formatSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '';
+  return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+export interface SpeedTracker {
+  update: (bytesDone: number) => number;
+  reset: () => void;
+}
+
+/**
+ * Smooths transfer speed with an exponential moving average over >=200 ms windows
+ * so chunked MTProto progress callbacks do not flicker.
+ */
+export function createSpeedTracker(): SpeedTracker {
+  let lastBytes = 0;
+  let lastTime = 0;
+  let smoothed = 0;
+
+  return {
+    update(bytesDone: number): number {
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (lastTime === 0 || bytesDone < lastBytes) {
+        lastBytes = Math.max(0, bytesDone);
+        lastTime = now;
+        return smoothed;
+      }
+      const dt = now - lastTime;
+      if (dt < 200) return smoothed;
+
+      const deltaBytes = bytesDone - lastBytes;
+      if (deltaBytes > 0) {
+        const instant = (deltaBytes / dt) * 1000;
+        smoothed = smoothed === 0 ? instant : smoothed * 0.65 + instant * 0.35;
+      }
+      lastBytes = bytesDone;
+      lastTime = now;
+      return smoothed;
+    },
+    reset(): void {
+      lastBytes = 0;
+      lastTime = 0;
+      smoothed = 0;
+    },
+  };
+}
+
 export function formatDuration(seconds: number | undefined): string {
   if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return '';
   const total = Math.round(seconds);
