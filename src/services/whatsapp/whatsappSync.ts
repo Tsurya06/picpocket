@@ -162,13 +162,75 @@ function buildScan(rootName: string, raw: readonly RawEntry[], skipped: number):
   };
 }
 
+export interface ScanProgress {
+  /** Files accepted so far, so the UI can show the walk is still alive. */
+  readonly files: number;
+  readonly directories: number;
+  /** Folder being read, relative to the picked root. */
+  readonly path: string;
+}
+
+export interface ScanOptions {
+  readonly signal?: AbortSignal;
+  readonly onProgress?: (progress: ScanProgress) => void;
+}
+
 interface WalkState {
   skipped: number;
+  files: number;
+  directories: number;
+  pendingYield: number;
+  lastReport: number;
 }
+
+const SCAN_FILE_CONCURRENCY = 8;
+const SCAN_FILE_TIMEOUT_MS = 10_000;
+const SCAN_YIELD_EVERY = 256;
 
 /** `values()` exists in browsers but is missing from this TypeScript DOM lib. */
 interface WalkableDirectory extends FileSystemDirectoryHandle {
   values(): AsyncIterableIterator<FileSystemDirectoryHandle | FileSystemFileHandle>;
+}
+
+const abortScan = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) throw new DOMException('Folder scan cancelled.', 'AbortError');
+};
+
+function reportScan(
+  state: WalkState,
+  options: ScanOptions | undefined,
+  path: string,
+  force = false,
+): void {
+  const report = options?.onProgress;
+  if (!report) return;
+  const now = Date.now();
+  if (!force && now - state.lastReport < 120) return;
+  state.lastReport = now;
+  report({ files: state.files, directories: state.directories, path });
+}
+
+const yieldToUi = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * `getFile()` only reads metadata, but on Android's SAF-backed folders a single
+ * call can stall on a file that disappeared mid-walk. Skipping it keeps the
+ * scan moving instead of freezing the backup at 0%.
+ */
+async function readFileHandle(handle: FileSystemFileHandle): Promise<File | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      handle.getFile(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), SCAN_FILE_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function walkDirectory(
@@ -177,39 +239,85 @@ async function walkDirectory(
   out: RawEntry[],
   depth: number,
   state: WalkState,
+  options: ScanOptions | undefined,
 ): Promise<void> {
   if (depth > MAX_SCAN_DEPTH || out.length >= MAX_SCAN_FILES) return;
+  abortScan(options?.signal);
 
-  for await (const entry of (directory as WalkableDirectory).values()) {
+  state.directories += 1;
+  reportScan(state, options, prefix, true);
+
+  const fileHandles: FileSystemFileHandle[] = [];
+  const childDirectories: Array<{ handle: FileSystemDirectoryHandle; prefix: string }> = [];
+
+  try {
+    for await (const entry of (directory as WalkableDirectory).values()) {
+      if (out.length + fileHandles.length >= MAX_SCAN_FILES) break;
+      if (entry.kind === 'directory') {
+        childDirectories.push({
+          handle: entry as FileSystemDirectoryHandle,
+          prefix: `${prefix}${entry.name}/`,
+        });
+      } else {
+        fileHandles.push(entry as FileSystemFileHandle);
+      }
+    }
+  } catch {
+    // One unreadable folder must not abandon the whole backup.
+    abortScan(options?.signal);
+    state.skipped += 1;
+    return;
+  }
+
+  // Reading metadata in small parallel batches is far quicker over SAF than
+  // awaiting one handle at a time.
+  for (let start = 0; start < fileHandles.length; start += SCAN_FILE_CONCURRENCY) {
+    abortScan(options?.signal);
+    const batch = fileHandles.slice(start, start + SCAN_FILE_CONCURRENCY);
+    const loaded = await Promise.all(batch.map((handle) => readFileHandle(handle)));
+    for (const file of loaded) {
+      if (!file) {
+        state.skipped += 1;
+        continue;
+      }
+      const path = `${prefix}${file.name}`;
+      if (shouldSkip(path, file)) {
+        state.skipped += 1;
+        continue;
+      }
+      out.push({ file, path });
+      state.files += 1;
+    }
+    reportScan(state, options, prefix);
+
+    state.pendingYield += batch.length;
+    if (state.pendingYield >= SCAN_YIELD_EVERY) {
+      state.pendingYield = 0;
+      reportScan(state, options, prefix, true);
+      await yieldToUi();
+    }
+  }
+
+  for (const child of childDirectories) {
     if (out.length >= MAX_SCAN_FILES) return;
-    if (entry.kind === 'directory') {
-      await walkDirectory(
-        entry as FileSystemDirectoryHandle,
-        `${prefix}${entry.name}/`,
-        out,
-        depth + 1,
-        state,
-      );
-      continue;
-    }
-
-    const handle = entry as FileSystemFileHandle;
-    const file = await handle.getFile();
-    const path = `${prefix}${file.name}`;
-    if (shouldSkip(path, file)) {
-      state.skipped += 1;
-      continue;
-    }
-    out.push({ file, path });
+    await walkDirectory(child.handle, child.prefix, out, depth + 1, state, options);
   }
 }
 
 export async function scanWhatsAppDirectory(
   handle: FileSystemDirectoryHandle,
+  options: ScanOptions = {},
 ): Promise<DirectoryScan> {
   const raw: RawEntry[] = [];
-  const state: WalkState = { skipped: 0 };
-  await walkDirectory(handle, '', raw, 0, state);
+  const state: WalkState = {
+    skipped: 0,
+    files: 0,
+    directories: 0,
+    pendingYield: 0,
+    lastReport: 0,
+  };
+  await walkDirectory(handle, '', raw, 0, state, options);
+  reportScan(state, options, '', true);
   return buildScan(handle.name, raw, state.skipped);
 }
 
@@ -267,7 +375,9 @@ export async function markWhatsAppFolderSynced(at = Date.now()): Promise<void> {
 }
 
 /** Opens the native folder picker, walks the tree and remembers the handle. */
-export async function pickWhatsAppDirectory(): Promise<DirectoryScan> {
+export async function pickWhatsAppDirectory(
+  options: ScanOptions = {},
+): Promise<DirectoryScan> {
   const picker = (window as unknown as PickerWindow).showDirectoryPicker;
   if (!picker) {
     throw new Error(
@@ -277,16 +387,17 @@ export async function pickWhatsAppDirectory(): Promise<DirectoryScan> {
 
   const handle = await picker.call(window, { id: 'whatsapp-vault', mode: 'read' });
   const previous = await loadWhatsAppFolderConfig();
-  const scan = await scanWhatsAppDirectory(handle);
+  // Remember the selection before the walk: a large WhatsApp tree takes a while
+  // on a phone, and losing the handle to a reload would force a re-pick.
   await saveWhatsAppFolderConfig({
     name: handle.name,
     handle,
-    lastSyncAt: null,
+    lastSyncAt: previous?.lastSyncAt ?? null,
     autoSync: previous?.autoSync ?? false,
     scheduleTime: previous?.scheduleTime ?? DEFAULT_SYNC_TIME,
     savedAt: Date.now(),
   });
-  return scan;
+  return scanWhatsAppDirectory(handle, options);
 }
 
 /**

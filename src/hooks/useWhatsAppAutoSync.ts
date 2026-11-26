@@ -148,7 +148,21 @@ export function useWhatsAppAutoSync(options: {
           }
         }
 
-        const scan = await scanWhatsAppDirectory(config.handle);
+        const scan = await scanWhatsAppDirectory(config.handle, {
+          onProgress: (next) => {
+            setProgress({
+              phase: 'scanning',
+              fraction: 0,
+              label: `Reading the WhatsApp folder… ${next.files.toLocaleString()} files found`,
+              chunksDone: 0,
+              chunksTotal: 0,
+              filesDone: next.files,
+              filesTotal: 0,
+              bytesDone: 0,
+              bytesTotal: 0,
+            });
+          },
+        });
         setPhase('uploading');
         await syncWhatsAppBackup({
           channelId,

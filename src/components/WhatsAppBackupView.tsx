@@ -92,21 +92,32 @@ const RESTORE_STEPS = [
 
 function ProgressBar({ progress }: { progress: BackupProgress }) {
   const percent = Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100);
+  // A folder walk has no known total, so a 0% bar looks frozen; show activity instead.
+  const scanning = progress.phase === 'scanning';
   return (
     <div className="space-y-2" aria-live="polite">
       <div className="flex items-center justify-between gap-3 text-xs">
-        <span className="min-w-0 truncate text-ink">{progress.label}</span>
-        <span className="shrink-0 font-medium tabular-nums text-muted">{percent}%</span>
+        <span className="flex min-w-0 items-center gap-2">
+          {scanning ? <Loader2 size={13} className="shrink-0 animate-spin text-accent" /> : null}
+          <span className="truncate text-ink">{progress.label}</span>
+        </span>
+        <span className="shrink-0 font-medium tabular-nums text-muted">
+          {scanning ? `${progress.filesDone.toLocaleString()} files` : `${percent}%`}
+        </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-surface">
-        <div
-          className="h-full rounded-full bg-accent transition-[width] duration-300"
-          style={{ width: `${percent}%` }}
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent}
-        />
+        {scanning ? (
+          <div className="h-full w-full animate-pulse rounded-full bg-accent/50" />
+        ) : (
+          <div
+            className="h-full rounded-full bg-accent transition-[width] duration-300"
+            style={{ width: `${percent}%` }}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          />
+        )}
       </div>
       {progress.chunksTotal > 0 ? (
         <p className="text-[11px] text-muted">
@@ -263,17 +274,32 @@ export function WhatsAppBackupView({
       inputRef.current?.click();
       return;
     }
+    const controller = new AbortController();
+    abortRef.current = controller;
     setBusy('scan');
     setProgress({ ...EMPTY_PROGRESS, phase: 'scanning', label: 'Reading the WhatsApp folder…' });
     try {
-      const result = await pickWhatsAppDirectory();
+      const result = await pickWhatsAppDirectory({
+        signal: controller.signal,
+        onProgress: (next) => {
+          setProgress({
+            ...EMPTY_PROGRESS,
+            phase: 'scanning',
+            label: `Reading the WhatsApp folder… ${next.files.toLocaleString()} files found`,
+            filesDone: next.files,
+          });
+        },
+      });
       await applyScan(result);
       await autoSync.refresh();
     } catch (caught) {
-      if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
+      if (controller.signal.aborted) {
+        setNotice('Folder scan cancelled. Choose the folder again to retry.');
+      } else if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
         setError(describeError(caught));
       }
     } finally {
+      abortRef.current = null;
       setBusy(null);
       setProgress(EMPTY_PROGRESS);
     }
@@ -392,7 +418,7 @@ export function WhatsAppBackupView({
     abortRef.current?.abort();
   };
 
-  const working = busy === 'sync' || busy === 'restore';
+  const working = busy === 'sync' || busy === 'restore' || busy === 'scan';
 
   return (
     <section className="mx-auto w-full max-w-4xl px-4 pb-28 pt-6 sm:px-6 md:pb-10">
@@ -506,7 +532,7 @@ export function WhatsAppBackupView({
             ) : null}
             {working ? (
               <Button variant="ghost" size="sm" onClick={cancel}>
-                Cancel
+                {busy === 'scan' ? 'Stop scanning' : 'Cancel'}
               </Button>
             ) : null}
           </div>
