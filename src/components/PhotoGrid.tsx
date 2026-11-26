@@ -28,10 +28,11 @@ export interface PhotoGridProps {
   readonly onToggleSelect: (item: MediaItem) => void;
 }
 
-const MIN_TILE = 148;
 const GAP = 4;
 const MONTH_ROW = 56;
 const DAY_ROW = 34;
+const MIN_ASPECT = 0.5;
+const MAX_ASPECT = 2.5;
 /** Rows kept mounted just outside the viewport so fast scrolling is smooth. */
 const OVERSCAN_ROWS = 3;
 /** Extra rows whose previews are warmed above and below the mounted window. */
@@ -233,19 +234,93 @@ function MediaTile({
   );
 }
 
+interface RowBox {
+  readonly item: MediaItem;
+  readonly width: number;
+  readonly aspect: number;
+}
+
 type GridRow =
   | { readonly kind: 'month'; readonly key: string; readonly label: string; readonly count: number }
   | { readonly kind: 'day'; readonly key: string; readonly label: string }
-  | { readonly kind: 'items'; readonly key: string; readonly items: readonly MediaItem[] };
+  | {
+      readonly kind: 'items';
+      readonly key: string;
+      readonly rowHeight: number;
+      readonly boxes: readonly RowBox[];
+    };
+
+const aspectRatioOf = (item: MediaItem): number => {
+  if (item.width > 0 && item.height > 0) {
+    const ratio = item.width / item.height;
+    if (Number.isFinite(ratio) && ratio > 0) {
+      return Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, ratio));
+    }
+  }
+  return 1;
+};
+
+const targetRowHeightFor = (containerWidth: number): number => {
+  if (containerWidth < 520) return 152;
+  if (containerWidth < 900) return 190;
+  return 230;
+};
+
+const finalizeRow = (
+  pending: readonly { item: MediaItem; aspect: number }[],
+  containerWidth: number,
+  targetHeight: number,
+  isLastRow: boolean,
+): { rowHeight: number; boxes: RowBox[] } => {
+  const gapTotal = GAP * (pending.length - 1);
+  const available = Math.max(1, containerWidth - gapTotal);
+  const sumAspect = pending.reduce((sum, entry) => sum + entry.aspect, 0);
+  const justifiedHeight = available / sumAspect;
+
+  // Keep an incomplete trailing row at targetHeight so a lone portrait isn't stretched full-width.
+  const shouldJustify = !isLastRow || justifiedHeight <= targetHeight * 1.25;
+  const maxAllowedHeight = Math.min(targetHeight * 1.6, containerWidth * 0.85);
+  const rawHeight = shouldJustify ? Math.min(justifiedHeight, maxAllowedHeight) : targetHeight;
+  const rowHeight = Math.max(80, Math.round(rawHeight));
+
+  if (!shouldJustify) {
+    return {
+      rowHeight,
+      boxes: pending.map((entry) => ({
+        item: entry.item,
+        aspect: entry.aspect,
+        width: Math.max(48, Math.round(entry.aspect * rowHeight)),
+      })),
+    };
+  }
+
+  let usedWidth = 0;
+  const boxes: RowBox[] = pending.map((entry, index) => {
+    if (index === pending.length - 1) {
+      return {
+        item: entry.item,
+        aspect: entry.aspect,
+        width: Math.max(48, available - usedWidth),
+      };
+    }
+    const w = Math.max(48, Math.round(entry.aspect * rawHeight));
+    usedWidth += w;
+    return { item: entry.item, aspect: entry.aspect, width: w };
+  });
+
+  return { rowHeight, boxes };
+};
 
 /**
- * Flattens the grouped timeline into virtual rows: one per month header, one
- * per day header, and fixed-width media rows. Only the rows intersecting the
- * viewport are mounted, so DOM size stays constant whether the channel holds
- * 50 photos or 50 000.
+ * Flattens the grouped timeline into virtual rows using a justified layout:
+ * each photo/video keeps its true aspect ratio while rows align edge-to-edge.
+ * Only the rows intersecting the viewport are mounted.
  */
-const buildRows = (groups: readonly MonthGroup[], columns: number): GridRow[] => {
+const buildRows = (groups: readonly MonthGroup[], containerWidth: number): GridRow[] => {
+  const safeWidth = containerWidth > 0 ? containerWidth : 360;
+  const targetHeight = targetRowHeightFor(safeWidth);
   const rows: GridRow[] = [];
+
   for (const month of groups) {
     rows.push({
       kind: 'month',
@@ -255,11 +330,65 @@ const buildRows = (groups: readonly MonthGroup[], columns: number): GridRow[] =>
     });
     for (const day of month.days) {
       rows.push({ kind: 'day', key: `day:${day.key}`, label: day.label });
-      for (let index = 0; index < day.items.length; index += columns) {
+
+      let pending: { item: MediaItem; aspect: number }[] = [];
+      let sumAspect = 0;
+      let rowStartIndex = 0;
+
+      for (let i = 0; i < day.items.length; i += 1) {
+        const item = day.items[i]!;
+        const aspect = aspectRatioOf(item);
+
+        if (pending.length === 0) {
+          pending.push({ item, aspect });
+          sumAspect = aspect;
+          rowStartIndex = i;
+          continue;
+        }
+
+        const heightWithout = Math.max(1, safeWidth - GAP * (pending.length - 1)) / sumAspect;
+        const heightWith = Math.max(1, safeWidth - GAP * pending.length) / (sumAspect + aspect);
+
+        // Add to current row if we haven't reached targetHeight yet, or adding it
+        // gets us closer to targetHeight than closing early.
+        if (
+          heightWithout > targetHeight * 1.45 ||
+          Math.abs(heightWith - targetHeight) <= Math.abs(heightWithout - targetHeight)
+        ) {
+          pending.push({ item, aspect });
+          sumAspect += aspect;
+          if (heightWith <= targetHeight) {
+            const { rowHeight, boxes } = finalizeRow(pending, safeWidth, targetHeight, false);
+            rows.push({
+              kind: 'items',
+              key: `row:${day.key}:${rowStartIndex}`,
+              rowHeight,
+              boxes,
+            });
+            pending = [];
+            sumAspect = 0;
+          }
+        } else {
+          const { rowHeight, boxes } = finalizeRow(pending, safeWidth, targetHeight, false);
+          rows.push({
+            kind: 'items',
+            key: `row:${day.key}:${rowStartIndex}`,
+            rowHeight,
+            boxes,
+          });
+          pending = [{ item, aspect }];
+          sumAspect = aspect;
+          rowStartIndex = i;
+        }
+      }
+
+      if (pending.length > 0) {
+        const { rowHeight, boxes } = finalizeRow(pending, safeWidth, targetHeight, true);
         rows.push({
           kind: 'items',
-          key: `row:${day.key}:${index}`,
-          items: day.items.slice(index, index + columns),
+          key: `row:${day.key}:${rowStartIndex}`,
+          rowHeight,
+          boxes,
         });
       }
     }
@@ -310,15 +439,13 @@ export function PhotoGrid({
     setOffsetTop((current) => (Math.abs(current - next) > 0.5 ? next : current));
   });
 
-  const columns = Math.max(2, Math.min(8, Math.floor((width + GAP) / (MIN_TILE + GAP)) || 2));
-  const tileSize = width > 0 ? (width - GAP * (columns - 1)) / columns : MIN_TILE;
-  const rows = useMemo(() => buildRows(groups, columns), [groups, columns]);
+  const rows = useMemo(() => buildRows(groups, width), [groups, width]);
 
   const sizeOf = (row: GridRow | undefined): number => {
-    if (!row) return tileSize + GAP;
+    if (!row) return 180 + GAP;
     if (row.kind === 'month') return MONTH_ROW;
     if (row.kind === 'day') return DAY_ROW;
-    return tileSize + GAP;
+    return row.rowHeight + GAP;
   };
 
   const virtualizer = useWindowVirtualizer({
@@ -331,7 +458,7 @@ export function PhotoGrid({
 
   useEffect(() => {
     virtualizer.measure();
-  }, [columns, tileSize, virtualizer]);
+  }, [rows, virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
   const firstVirtualIndex = virtualRows[0]?.index ?? 0;
@@ -346,7 +473,7 @@ export function PhotoGrid({
     for (let index = prefetchFrom; index <= prefetchTo; index += 1) {
       const row = rows[index];
       if (row?.kind !== 'items') continue;
-      for (const item of row.items) prefetchThumbnail(item);
+      for (const box of row.boxes) prefetchThumbnail(box.item);
     }
   }, [prefetchFrom, prefetchTo, rows]);
 
@@ -411,24 +538,28 @@ export function PhotoGrid({
 
                 {row.kind === 'items' ? (
                   <div
-                    className="grid h-full"
+                    className="flex items-start"
                     style={{
-                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
                       gap: GAP,
-                      height: tileSize,
+                      height: row.rowHeight,
                     }}
                   >
-                    {row.items.map((item) => (
-                      <MediaTile
-                        key={item.id}
-                        item={item}
-                        onOpen={onOpen}
-                        fill
-                        selected={selectedIds.has(item.id)}
-                        selecting={selecting}
-                        onLongPress={onLongPress}
-                        onToggleSelect={onToggleSelect}
-                      />
+                    {row.boxes.map((box) => (
+                      <div
+                        key={box.item.id}
+                        className="shrink-0"
+                        style={{ width: box.width, height: row.rowHeight }}
+                      >
+                        <MediaTile
+                          item={box.item}
+                          onOpen={onOpen}
+                          fill
+                          selected={selectedIds.has(box.item.id)}
+                          selecting={selecting}
+                          onLongPress={onLongPress}
+                          onToggleSelect={onToggleSelect}
+                        />
+                      </div>
                     ))}
                   </div>
                 ) : null}
