@@ -30,6 +30,11 @@ export interface WhatsAppAutoSyncApi {
   readonly setAutoSync: (value: boolean) => Promise<void>;
   readonly setScheduleTime: (value: string) => Promise<void>;
   readonly markSynced: (at?: number) => Promise<void>;
+  /**
+   * Reserves the single sync slot for a manual run. Returns null when a backup
+   * is already running, so manual and automatic backups never overlap.
+   */
+  readonly claimSync: () => (() => void) | null;
 }
 
 const describeError = (caught: unknown): string => {
@@ -128,10 +133,19 @@ export function useWhatsAppAutoSync(options: {
     [],
   );
 
+  const claimSync = useCallback((): (() => void) | null => {
+    if (runningRef.current) return null;
+    runningRef.current = true;
+    return () => {
+      runningRef.current = false;
+    };
+  }, []);
+
   /** Scans the remembered folder and uploads whatever changed. */
   const runBackup = useCallback(
     async (handle: FileSystemDirectoryHandle, targetChannelId: string): Promise<void> => {
-      runningRef.current = true;
+      const release = claimSync();
+      if (!release) return;
       setError(null);
       setProgress(null);
       setPhase('scanning');
@@ -167,10 +181,10 @@ export function useWhatsAppAutoSync(options: {
         setError(describeError(caught));
       } finally {
         stopSyncKeepAlive();
-        runningRef.current = false;
+        release();
       }
     },
-    [markSynced],
+    [claimSync, markSynced],
   );
 
   // A due backup starts on its own when the browser still remembers the folder
@@ -248,5 +262,6 @@ export function useWhatsAppAutoSync(options: {
     setAutoSync,
     setScheduleTime,
     markSynced,
+    claimSync,
   };
 }

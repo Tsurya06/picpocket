@@ -301,6 +301,24 @@ export function WhatsAppBackupView({
     });
   };
 
+  /**
+   * Manual runs take the same slot as the automatic backup, so tapping Re-sync
+   * while an automatic check is due can never start two uploads at once.
+   */
+  const runLocked = async (task: () => Promise<void>): Promise<void> => {
+    const release = autoSync.claimSync();
+    if (!release) {
+      setNotice('A WhatsApp backup is already running. Wait for it to finish, then check again.');
+      return;
+    }
+    setNotice(null);
+    try {
+      await task();
+    } finally {
+      release();
+    }
+  };
+
   const pickFolder = async (): Promise<void> => {
     setError(null);
     setNotice(null);
@@ -309,28 +327,30 @@ export function WhatsAppBackupView({
       inputRef.current?.click();
       return;
     }
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setBusy('scan');
-    setProgress({ ...EMPTY_PROGRESS, phase: 'scanning', label: 'Reading the WhatsApp folder…' });
-    try {
-      const result = await pickWhatsAppDirectory({
-        signal: controller.signal,
-        onProgress: onScanProgress,
-      });
-      await applyScan(result);
-      await autoSync.refresh();
-    } catch (caught) {
-      if (controller.signal.aborted) {
-        setNotice('Folder scan cancelled. Choose the folder again to retry.');
-      } else if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
-        setError(describeError(caught));
+    await runLocked(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setBusy('scan');
+      setProgress({ ...EMPTY_PROGRESS, phase: 'scanning', label: 'Reading the WhatsApp folder…' });
+      try {
+        const result = await pickWhatsAppDirectory({
+          signal: controller.signal,
+          onProgress: onScanProgress,
+        });
+        await applyScan(result);
+        await autoSync.refresh();
+      } catch (caught) {
+        if (controller.signal.aborted) {
+          setNotice('Folder scan cancelled. Choose the folder again to retry.');
+        } else if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
+          setError(describeError(caught));
+        }
+      } finally {
+        abortRef.current = null;
+        setBusy(null);
+        setProgress(EMPTY_PROGRESS);
       }
-    } finally {
-      abortRef.current = null;
-      setBusy(null);
-      setProgress(EMPTY_PROGRESS);
-    }
+    });
   };
 
   /**
@@ -430,12 +450,14 @@ export function WhatsAppBackupView({
       inputRef.current?.click();
       return;
     }
-    const result = await rescanFolder(autoSync.config?.handle ?? null);
-    if (!result) return;
-    await autoSync.refresh();
-    await applyScan(result);
-    if (result.latestDatabase === null && result.media.length === 0) return;
-    await uploadScan(result);
+    await runLocked(async () => {
+      const result = await rescanFolder(autoSync.config?.handle ?? null);
+      if (!result) return;
+      await autoSync.refresh();
+      await applyScan(result);
+      if (result.latestDatabase === null && result.media.length === 0) return;
+      await uploadScan(result);
+    });
   };
 
   const restore = async (): Promise<void> => {
@@ -636,7 +658,7 @@ export function WhatsAppBackupView({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="primary"
-              onClick={() => void (scan ? uploadScan(scan) : resync())}
+              onClick={() => void (scan ? runLocked(() => uploadScan(scan)) : resync())}
               disabled={busy !== null || !channelId}
               leadingIcon={
                 busy === 'sync' || busy === 'scan' ? (
