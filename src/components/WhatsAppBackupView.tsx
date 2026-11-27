@@ -20,6 +20,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
+  Square,
   UploadCloud,
 } from 'lucide-react';
 import { createSpeedTracker, formatBytes, formatFullDate, formatSpeed, humanDayLabel } from '../lib/format';
@@ -559,6 +560,15 @@ export function WhatsAppBackupView({
     abortRef.current?.abort();
   };
 
+  const autoRunning = autoSync.phase === 'scanning' || autoSync.phase === 'uploading';
+
+  const stopAutoBackup = (): void => {
+    autoSync.stop();
+    setNotice(
+      'Automatic backup stopped. Tap Re-sync now whenever you want to run it again.',
+    );
+  };
+
   const working = busy === 'sync' || busy === 'restore' || busy === 'scan';
   const lastSyncedAt = lastSync?.at ?? autoSync.config?.lastSyncAt ?? summary?.createdAt ?? null;
   const syncedParts: string[] = [];
@@ -689,7 +699,7 @@ export function WhatsAppBackupView({
             <Button
               variant="primary"
               onClick={() => void (scan ? runLocked(() => uploadScan(scan)) : resync())}
-              disabled={busy !== null || !channelId}
+              disabled={busy !== null || !channelId || autoRunning}
               leadingIcon={
                 busy === 'sync' || busy === 'scan' ? (
                   <Loader2 size={16} className="animate-spin" />
@@ -698,9 +708,11 @@ export function WhatsAppBackupView({
                 )
               }
             >
-              {busy === 'sync'
-                ? 'Syncing…'
-                : busy === 'scan'
+              {autoRunning
+                ? 'Automatic backup running…'
+                : busy === 'sync'
+                  ? 'Syncing…'
+                  : busy === 'scan'
                   ? 'Checking for new files…'
                   : scan
                     ? 'Sync now'
@@ -727,6 +739,17 @@ export function WhatsAppBackupView({
             {working ? (
               <Button variant="ghost" size="sm" onClick={cancel}>
                 {busy === 'scan' ? 'Stop checking' : 'Cancel'}
+              </Button>
+            ) : null}
+            {autoRunning ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={stopAutoBackup}
+                data-auto-sync-control=""
+                leadingIcon={<Square size={13} />}
+              >
+                Stop backup
               </Button>
             ) : null}
           </div>
@@ -790,7 +813,8 @@ export function WhatsAppBackupView({
                 <p className="mt-1 text-[11px] leading-relaxed text-muted">
                   Checks once a day at your chosen time, while PicPocket is open. Chrome or Edge on a
                   computer can run it with no tap at all (choose “Allow on every visit”); on a phone
-                  the next tap after opening the app starts it.
+                  the next tap after opening the app starts it. Switching it off also stops a backup
+                  that is already running.
                 </p>
               </div>
               <button
@@ -798,6 +822,7 @@ export function WhatsAppBackupView({
                 role="switch"
                 aria-checked={autoSync.autoSync}
                 aria-label="Automatic WhatsApp backup"
+                data-auto-sync-control=""
                 disabled={!autoSync.config}
                 onClick={() => void autoSync.setAutoSync(!autoSync.autoSync)}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-40 ${
@@ -838,17 +863,31 @@ export function WhatsAppBackupView({
             )}
 
             {autoSync.awaitingTap ? (
-              <p className="mt-2 text-[11px] font-medium leading-relaxed text-accent">
-                Backup is due — tap anywhere to allow the WhatsApp folder, then it starts on its own.
-              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <p className="text-[11px] font-medium leading-relaxed text-accent">
+                  Backup is due — tap anywhere to allow the WhatsApp folder, then it starts on its
+                  own.
+                </p>
+                <Button variant="ghost" size="sm" onClick={stopAutoBackup} data-auto-sync-control="">
+                  Not now
+                </Button>
+              </div>
             ) : null}
             {autoSync.error ? (
               <p className="mt-2 text-[11px] leading-relaxed text-danger">{autoSync.error}</p>
             ) : null}
-            {autoSync.progress &&
-            (autoSync.phase === 'scanning' || autoSync.phase === 'uploading') ? (
-              <div className="mt-3">
+            {autoRunning && autoSync.progress ? (
+              <div className="mt-3 space-y-2">
                 <ProgressBar progress={autoSync.progress} />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={stopAutoBackup}
+                  data-auto-sync-control=""
+                  leadingIcon={<Square size={13} />}
+                >
+                  Stop backup
+                </Button>
               </div>
             ) : null}
           </div>

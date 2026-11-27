@@ -37,6 +37,8 @@ export interface WhatsAppAutoSyncApi {
   readonly refresh: () => Promise<void>;
   readonly setAutoSync: (value: boolean) => Promise<void>;
   readonly setScheduleTime: (value: string) => Promise<void>;
+  /** Aborts a running automatic backup and dismisses a pending "tap to allow" prompt. */
+  readonly stop: () => void;
   readonly markSynced: (at?: number) => Promise<void>;
   /**
    * Reserves the single sync slot for a manual run. Returns null when a backup
@@ -72,6 +74,7 @@ export function useWhatsAppAutoSync(options: {
   const [tick, setTick] = useState(0);
   const runningRef = useRef(false);
   const attemptedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const applyConfig = useCallback((next: WhatsAppFolderConfig | null): void => {
     setConfig(next);
@@ -115,6 +118,12 @@ export function useWhatsAppAutoSync(options: {
       if (!current) return;
       applyConfig(current);
       await saveWhatsAppFolderConfig(current);
+      if (!value) {
+        // Switching it off must also end a backup that already started, and
+        // disarm the "tap anywhere" listener so no later tap revives it.
+        setAwaitingTap(false);
+        abortRef.current?.abort();
+      }
     },
     [applyConfig, config],
   );
@@ -151,6 +160,13 @@ export function useWhatsAppAutoSync(options: {
     [],
   );
 
+  const stop = useCallback((): void => {
+    setAwaitingTap(false);
+    if (!abortRef.current) return;
+    abortRef.current.abort();
+    setProgress(null);
+  }, []);
+
   const claimSync = useCallback((): (() => void) | null => {
     if (runningRef.current) return null;
     runningRef.current = true;
@@ -168,6 +184,8 @@ export function useWhatsAppAutoSync(options: {
     ): Promise<void> => {
       const release = claimSync();
       if (!release) return;
+      const controller = new AbortController();
+      abortRef.current = controller;
       setError(null);
       setProgress(null);
       setPhase('scanning');
@@ -175,6 +193,7 @@ export function useWhatsAppAutoSync(options: {
 
       try {
         const scan = await scanWhatsAppDirectory(handle, {
+          signal: controller.signal,
           onProgress: (next) => {
             setProgress({
               phase: 'scanning',
@@ -194,15 +213,23 @@ export function useWhatsAppAutoSync(options: {
           channelId: targetChannelId,
           scan,
           media,
+          signal: controller.signal,
           onProgress: (next) => setProgress(next),
         });
         await markSynced(Date.now());
         setPhase('done');
         setError(null);
       } catch (caught) {
-        setPhase('error');
-        setError(describeError(caught));
+        if (controller.signal.aborted) {
+          setPhase('idle');
+          setProgress(null);
+          setError(null);
+        } else {
+          setPhase('error');
+          setError(describeError(caught));
+        }
       } finally {
+        if (abortRef.current === controller) abortRef.current = null;
         stopSyncKeepAlive();
         release();
       }
@@ -253,7 +280,11 @@ export function useWhatsAppAutoSync(options: {
       window.removeEventListener('keydown', resume, true);
     }
 
-    async function resume(): Promise<void> {
+    async function resume(event: Event): Promise<void> {
+      // The tap that stops or turns off automatic backup must not start it instead.
+      if (event.target instanceof Element && event.target.closest('[data-auto-sync-control]')) {
+        return;
+      }
       stopListening();
       setAwaitingTap(false);
       if (runningRef.current) return;
@@ -288,6 +319,7 @@ export function useWhatsAppAutoSync(options: {
     refresh,
     setAutoSync,
     setScheduleTime,
+    stop,
     markSynced,
     claimSync,
   };
