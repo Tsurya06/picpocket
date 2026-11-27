@@ -286,7 +286,7 @@ export function WhatsAppBackupView({
     }
     if (!channelId) return;
     try {
-      setPlan(await previewWhatsAppSync(channelId, result));
+      setPlan(await previewWhatsAppSync(channelId, result, autoSync.includeMedia));
     } catch (caught) {
       setError(describeError(caught));
     }
@@ -318,6 +318,18 @@ export function WhatsAppBackupView({
       release();
     }
   };
+
+  // Switching between chats-only and chats + media changes what is pending, so
+  // the preview is recalculated instead of showing the old counts.
+  const mediaPrefRef = useRef(autoSync.includeMedia);
+  useEffect(() => {
+    if (mediaPrefRef.current === autoSync.includeMedia) return;
+    mediaPrefRef.current = autoSync.includeMedia;
+    if (!scan || !channelId) return;
+    void previewWhatsAppSync(channelId, scan, autoSync.includeMedia)
+      .then(setPlan)
+      .catch(() => undefined);
+  }, [autoSync.includeMedia, channelId, scan]);
 
   const pickFolder = async (): Promise<void> => {
     setError(null);
@@ -423,6 +435,7 @@ export function WhatsAppBackupView({
       const outcome = await syncWhatsAppBackup({
         channelId,
         scan: result,
+        includeMedia: autoSync.includeMedia,
         onProgress: setProgress,
         signal: controller.signal,
       });
@@ -713,6 +726,43 @@ export function WhatsAppBackupView({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="flex items-center gap-2 text-xs font-medium text-ink">
+                  <FileArchive size={15} className="text-accent" /> What gets backed up
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted">
+                  {autoSync.includeMedia
+                    ? 'Chats plus every photo, video and voice note in the folder. Slower and uses far more Telegram storage.'
+                    : `Chats only — the encrypted chat database${scan?.latestDatabase ? ` (${formatBytes(scan.latestDatabase.file.size)})` : ''}, which is everything WhatsApp needs to restore your messages. The ${scan ? scan.media.length.toLocaleString() : 'rest of the'} media files stay on your phone.`}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoSync.includeMedia}
+                  aria-label="Include WhatsApp photos and videos"
+                  disabled={!autoSync.config}
+                  onClick={() => void autoSync.setIncludeMedia(!autoSync.includeMedia)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${
+                    autoSync.includeMedia ? 'bg-accent' : 'bg-line'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+                      autoSync.includeMedia ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  {autoSync.includeMedia ? 'Chats + media' : 'Chats only'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-line bg-surface/50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-medium text-ink">
                   <Clock3 size={15} className="text-accent" /> Automatic backup
                 </p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted">
@@ -810,13 +860,16 @@ export function WhatsAppBackupView({
                   <dd className="truncate text-ink">
                     {scan.media.length.toLocaleString()} ·{' '}
                     {formatBytes(scan.media.reduce((sum, entry) => sum + entry.file.size, 0))}
+                    {autoSync.includeMedia ? '' : ' · not uploaded'}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2 sm:block">
                   <dt className="text-muted">New files to send</dt>
                   <dd className="truncate text-ink">
                     {plan
-                      ? `${plan.pendingMediaCount.toLocaleString()} new/changed · ${formatBytes(plan.pendingBytes)}`
+                      ? autoSync.includeMedia
+                        ? `${plan.pendingMediaCount.toLocaleString()} new/changed · ${formatBytes(plan.pendingBytes)}`
+                        : 'None — chats only'
                       : 'Checking local index…'}
                   </dd>
                 </div>

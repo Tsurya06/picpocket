@@ -356,6 +356,7 @@ export async function loadWhatsAppFolderConfig(): Promise<WhatsAppFolderConfig |
     lastSyncAt: typeof candidate.lastSyncAt === 'number' ? candidate.lastSyncAt : null,
     autoSync: candidate.autoSync === true,
     scheduleTime: normalizeSyncTime(candidate.scheduleTime),
+    includeMedia: candidate.includeMedia === true,
     savedAt: typeof candidate.savedAt === 'number' ? candidate.savedAt : Date.now(),
   };
 }
@@ -395,6 +396,7 @@ export async function pickWhatsAppDirectory(
     lastSyncAt: previous?.lastSyncAt ?? null,
     autoSync: previous?.autoSync ?? false,
     scheduleTime: previous?.scheduleTime ?? DEFAULT_SYNC_TIME,
+    includeMedia: previous?.includeMedia ?? false,
     savedAt: Date.now(),
   });
   return scanWhatsAppDirectory(handle, options);
@@ -497,7 +499,11 @@ const parseDbInfo = (row: WhatsAppBackupRow | undefined): BackupDatabaseInfo | n
   }
 };
 
-async function planSync(channelId: string, scan: DirectoryScan): Promise<SyncPlan> {
+async function planSync(
+  channelId: string,
+  scan: DirectoryScan,
+  includeMedia: boolean,
+): Promise<SyncPlan> {
   const [previous, rows] = await Promise.all([
     getWhatsAppBackup(channelId),
     getWhatsAppFiles(channelId),
@@ -506,10 +512,14 @@ async function planSync(channelId: string, scan: DirectoryScan): Promise<SyncPla
   const previousDb = parseDbInfo(previous);
   const candidate = scan.latestDatabase;
 
-  const pendingMedia = scan.media.filter((entry) => {
-    const row = existingRows.get(entry.path);
-    return !row || row.signature !== entry.signature;
-  });
+  // Chats-only backups skip media entirely: the encrypted msgstore is all
+  // WhatsApp needs to restore messages, so thousands of photos never upload.
+  const pendingMedia = includeMedia
+    ? scan.media.filter((entry) => {
+        const row = existingRows.get(entry.path);
+        return !row || row.signature !== entry.signature;
+      })
+    : [];
 
   const databaseChanged =
     candidate !== null &&
@@ -530,8 +540,9 @@ async function planSync(channelId: string, scan: DirectoryScan): Promise<SyncPla
 export async function previewWhatsAppSync(
   channelId: string,
   scan: DirectoryScan,
+  includeMedia = false,
 ): Promise<SyncPlanSummary> {
-  const plan = await planSync(channelId, scan);
+  const plan = await planSync(channelId, scan, includeMedia);
   return {
     pendingMediaCount: plan.pendingMedia.length,
     pendingBytes: plan.pendingMedia.reduce((sum, entry) => sum + entry.file.size, 0),
@@ -656,6 +667,8 @@ const deleteSuperseded = (channelId: string, row: WhatsAppFileRow | undefined): 
 export interface SyncOptions {
   readonly channelId: string;
   readonly scan: DirectoryScan;
+  /** Upload media as well as the chat database. Defaults to chats only. */
+  readonly includeMedia?: boolean;
   readonly onProgress?: (progress: BackupProgress) => void;
   readonly signal?: AbortSignal;
 }
@@ -669,8 +682,9 @@ export interface SyncResult {
 
 export async function syncWhatsAppBackup(options: SyncOptions): Promise<SyncResult> {
   const { channelId, scan, signal } = options;
+  const includeMedia = options.includeMedia ?? false;
   const onProgress = options.onProgress ?? noop;
-  const plan = await planSync(channelId, scan);
+  const plan = await planSync(channelId, scan, includeMedia);
   const backupId = randomBackupId();
   const createdAt = Date.now();
   const candidate = scan.latestDatabase;
@@ -679,7 +693,9 @@ export async function syncWhatsAppBackup(options: SyncOptions): Promise<SyncResu
   let databaseUploaded = false;
   let uploadedChunks = 0;
   let bytesDone = database?.size ?? 0;
-  const bytesTotal = scan.totalBytes;
+  const bytesTotal =
+    (candidate?.file.size ?? database?.size ?? 0) +
+    plan.pendingMedia.reduce((sum, entry) => sum + entry.file.size, 0);
 
   if (candidate && plan.databaseChanged) {
     database = await uploadDatabaseChunks(

@@ -36,6 +36,8 @@ export interface WhatsAppFolderConfig {
   readonly lastSyncAt: number | null;
   readonly autoSync: boolean;
   readonly scheduleTime: string;
+  /** Upload photos, videos and voice notes too. Off = chat database only. */
+  readonly includeMedia: boolean;
   readonly savedAt: number;
 }
 
