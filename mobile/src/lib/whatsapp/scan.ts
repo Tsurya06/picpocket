@@ -110,7 +110,15 @@ export async function scanWhatsAppDirectory(
     let entries: (Directory | File)[];
     try {
       entries = directory.list();
-    } catch {
+    } catch (error) {
+      // A saved folder whose Android permission was revoked must not look like
+      // an empty WhatsApp folder.
+      if (depth === 0) {
+        throw new Error(
+          'Android no longer allows reading that folder. Tap Choose and pick Android/media/com.whatsapp/WhatsApp again.',
+        );
+      }
+      void error;
       skipped += 1;
       return;
     }

@@ -30,6 +30,7 @@ export interface ChannelSummary {
   readonly username?: string;
   readonly kind: 'channel' | 'group' | 'supergroup';
   readonly isCreator: boolean;
+  readonly isAdmin: boolean;
 }
 
 export interface UploadInput {
@@ -221,6 +222,7 @@ class TelegramService {
                 ? 'group'
                 : 'channel',
           isCreator: peer.isCreator,
+          isAdmin: peer.isAdmin,
         });
       }
     });
@@ -240,6 +242,7 @@ class TelegramService {
       title: chat.title,
       kind: 'channel',
       isCreator: true,
+      isAdmin: true,
     };
   }
 

@@ -137,12 +137,26 @@ export function VaultProvider({ children }: { children: ReactNode }): React.JSX.
         setInfo(null);
         return;
       }
-      const fallback = list[0];
+      // Only a channel the account can post to is a usable vault: publishing
+      // the header into a read-only channel used to abort the whole login.
+      const fallback =
+        list.find((entry) => entry.isCreator) ??
+        list.find((entry) => entry.isAdmin) ??
+        list[0];
       if (fallback) {
         const choice = { id: fallback.id, title: fallback.title };
         setChannel(choice);
         await setJsonSetting('channel', choice);
-        await ensureVaultHeader(choice.id);
+        try {
+          await ensureVaultHeader(choice.id);
+          setInfo(null);
+        } catch (failure) {
+          setChannel(null);
+          await removeSetting('channel');
+          setInfo(
+            `Could not use "${fallback.title}" for the vault (${cipherErrorMessage(failure)}). Pick a channel you own in Settings.`,
+          );
+        }
       }
     },
     [ensureVaultHeader],
@@ -187,18 +201,24 @@ export function VaultProvider({ children }: { children: ReactNode }): React.JSX.
     async (credentials: TelegramCredentials): Promise<boolean> => {
       const sealed = await getSetting('session');
       if (!sealed) return false;
+      let me: TelegramAccount;
       try {
         const session = bytesToUtf8(vault.decryptBytes(fromBase64(sealed)));
-        const me = await telegramService.connectWithSession(credentials, session);
-        setAccount(me);
-        await loadChannels(null);
-        setStage('ready');
-        return true;
+        me = await telegramService.connectWithSession(credentials, session);
       } catch (failure) {
         await removeSetting('session');
         setInfo(`Saved Telegram session expired: ${cipherErrorMessage(failure)}`);
         return false;
       }
+      setAccount(me);
+      setStage('ready');
+      try {
+        await loadChannels(null);
+      } catch (failure) {
+        // The session is valid; a channel hiccup must not force a new login.
+        setInfo(`Signed in, but channels did not load: ${cipherErrorMessage(failure)}.`);
+      }
+      return true;
     },
     [loadChannels],
   );
@@ -240,11 +260,17 @@ export function VaultProvider({ children }: { children: ReactNode }): React.JSX.
   );
 
   const finishLogin = useCallback(async (): Promise<void> => {
+    // Save the session before touching channels, so a slow or forbidden
+    // channel can never lose a successful Telegram sign-in.
     const session = await telegramService.exportSession();
     await setSetting('session', toBase64(vault.encryptBytes(utf8ToBytes(session))));
     setAccount(telegramService.currentAccount);
-    await loadChannels(null);
     setStage('ready');
+    try {
+      await loadChannels(null);
+    } catch (failure) {
+      setInfo(`Signed in, but channels did not load: ${cipherErrorMessage(failure)}.`);
+    }
   }, [loadChannels]);
 
   const sendLoginCode = useCallback(

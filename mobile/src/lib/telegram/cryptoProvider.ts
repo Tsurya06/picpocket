@@ -8,7 +8,12 @@ import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
 import { sha1 } from '@noble/hashes/legacy.js';
 import { sha256, sha512 } from '@noble/hashes/sha2.js';
 import { gunzipSync, gzipSync, inflateSync } from 'fflate';
-import type { IAesCtr, ICryptoProvider, IEncryptionScheme } from '@mtcute/core/utils.js';
+import {
+  factorizePQSync,
+  type IAesCtr,
+  type ICryptoProvider,
+  type IEncryptionScheme,
+} from '@mtcute/core/utils.js';
 
 const BLOCK = 16;
 
@@ -124,9 +129,9 @@ export const cryptoProvider: ICryptoProvider = {
   hmacSha256: (data, key) => hmac(sha256, key, data),
   createAesCtr: (key, iv) => createCtr(key, iv),
   createAesIge: (key, iv) => createIge(key, iv),
-  factorizePQ: () => {
-    throw new Error('Quadratic factorization is not needed for an interactive client.');
-  },
+  // The auth-key handshake needs this on every fresh session; mtcute ships a
+  // pure-JS Brent-Pollard rho fallback for providers without a native one.
+  factorizePQ: (pq) => factorizePQSync(cryptoProvider, pq),
   gzip: (data, maxSize) => {
     const out = gzipSync(data);
     return out.byteLength > maxSize ? null : out;
