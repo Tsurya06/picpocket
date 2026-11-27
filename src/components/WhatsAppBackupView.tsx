@@ -37,11 +37,15 @@ import {
   loadRemoteWhatsAppBackup,
   pickWhatsAppDirectory,
   previewWhatsAppSync,
+  rescanWhatsAppFolder,
   restoreWhatsAppDatabase,
   scanWhatsAppFiles,
   supportsDirectoryPicker,
   syncWhatsAppBackup,
+  WhatsAppFolderPermissionError,
   type RemoteBackup,
+  type ScanProgress,
+  type SyncResult,
 } from '../services/whatsapp/whatsappSync';
 import { Button } from './ui/Button';
 import type { WhatsAppAutoSyncApi } from '../hooks/useWhatsAppAutoSync';
@@ -209,6 +213,7 @@ export function WhatsAppBackupView({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+  const [lastSync, setLastSync] = useState<{ result: SyncResult; at: number } | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
@@ -260,6 +265,7 @@ export function WhatsAppBackupView({
     setError(null);
     setNotice(null);
     setRestoreResult(null);
+    setLastSync(null);
     setProgress(EMPTY_PROGRESS);
     void refreshSummary();
     void loadRemote();
@@ -286,9 +292,19 @@ export function WhatsAppBackupView({
     }
   };
 
+  const onScanProgress = (next: ScanProgress): void => {
+    setProgress({
+      ...EMPTY_PROGRESS,
+      phase: 'scanning',
+      label: `Reading the WhatsApp folder… ${next.files.toLocaleString()} files found`,
+      filesDone: next.files,
+    });
+  };
+
   const pickFolder = async (): Promise<void> => {
     setError(null);
     setNotice(null);
+    setLastSync(null);
     if (!pickerAvailable) {
       inputRef.current?.click();
       return;
@@ -300,14 +316,7 @@ export function WhatsAppBackupView({
     try {
       const result = await pickWhatsAppDirectory({
         signal: controller.signal,
-        onProgress: (next) => {
-          setProgress({
-            ...EMPTY_PROGRESS,
-            phase: 'scanning',
-            label: `Reading the WhatsApp folder… ${next.files.toLocaleString()} files found`,
-            filesDone: next.files,
-          });
-        },
+        onProgress: onScanProgress,
       });
       await applyScan(result);
       await autoSync.refresh();
@@ -324,6 +333,54 @@ export function WhatsAppBackupView({
     }
   };
 
+  /**
+   * Re-reads the remembered folder without the picker. Only when the browser
+   * refuses permission do we fall back to choosing the folder again.
+   */
+  const rescanFolder = async (
+    handle: FileSystemDirectoryHandle | null,
+  ): Promise<DirectoryScan | null> => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setBusy('scan');
+    setError(null);
+    setNotice(null);
+    setLastSync(null);
+    setProgress({
+      ...EMPTY_PROGRESS,
+      phase: 'scanning',
+      label: 'Checking the WhatsApp folder for new files…',
+    });
+    try {
+      if (handle) {
+        try {
+          return await rescanWhatsAppFolder(handle, {
+            signal: controller.signal,
+            onProgress: onScanProgress,
+          });
+        } catch (caught) {
+          if (!(caught instanceof WhatsAppFolderPermissionError)) throw caught;
+          // Access was revoked: the user approves the folder picker once more.
+        }
+      }
+      return await pickWhatsAppDirectory({
+        signal: controller.signal,
+        onProgress: onScanProgress,
+      });
+    } catch (caught) {
+      if (controller.signal.aborted) {
+        setNotice('Folder check cancelled.');
+      } else if (!(caught instanceof DOMException && caught.name === 'AbortError')) {
+        setError(describeError(caught));
+      }
+      return null;
+    } finally {
+      abortRef.current = null;
+      setBusy(null);
+      setProgress(EMPTY_PROGRESS);
+    }
+  };
+
   const onDirectoryInput = (event: ChangeEvent<HTMLInputElement>): void => {
     const list = event.target.files;
     if (!list || list.length === 0) return;
@@ -333,32 +390,29 @@ export function WhatsAppBackupView({
     void applyScan(result);
   };
 
-  const sync = async (): Promise<void> => {
-    if (!scan || !channelId || busy !== null) return;
+  const uploadScan = async (result: DirectoryScan): Promise<void> => {
+    if (!channelId || busy !== null) return;
     const controller = new AbortController();
     abortRef.current = controller;
     setBusy('sync');
     setError(null);
     setNotice(null);
+    setLastSync(null);
     setProgress({ ...EMPTY_PROGRESS, phase: 'database', label: 'Preparing the backup…' });
     try {
-      const result = await syncWhatsAppBackup({
+      const outcome = await syncWhatsAppBackup({
         channelId,
-        scan,
+        scan: result,
         onProgress: setProgress,
         signal: controller.signal,
       });
+      const finishedAt = Date.now();
       setScan(null);
       setPlan(null);
-      await autoSync.markSynced(Date.now());
+      setLastSync({ result: outcome, at: finishedAt });
+      await autoSync.markSynced(finishedAt);
       await refreshSummary();
       await loadRemote();
-      const mediaText = `${result.uploadedMedia} new media file${result.uploadedMedia === 1 ? '' : 's'}`;
-      setNotice(
-        result.uploadedMedia === 0 && !result.databaseUploaded
-          ? 'Everything was already backed up — nothing new to upload.'
-          : `Backup complete: ${mediaText}${result.databaseUploaded ? ' and the chat database' : ''} stored in Telegram.`,
-      );
     } catch (caught) {
       setError(describeError(caught));
     } finally {
@@ -366,6 +420,22 @@ export function WhatsAppBackupView({
       setProgress(EMPTY_PROGRESS);
       abortRef.current = null;
     }
+  };
+
+  /** One tap: check the remembered folder and upload only what changed. */
+  const resync = async (): Promise<void> => {
+    if (busy !== null || !channelId) return;
+    if (!pickerAvailable) {
+      setNotice('Select the WhatsApp folder to check for new files.');
+      inputRef.current?.click();
+      return;
+    }
+    const result = await rescanFolder(autoSync.config?.handle ?? null);
+    if (!result) return;
+    await autoSync.refresh();
+    await applyScan(result);
+    if (result.latestDatabase === null && result.media.length === 0) return;
+    await uploadScan(result);
   };
 
   const restore = async (): Promise<void> => {
@@ -438,6 +508,19 @@ export function WhatsAppBackupView({
   };
 
   const working = busy === 'sync' || busy === 'restore' || busy === 'scan';
+  const lastSyncedAt = lastSync?.at ?? autoSync.config?.lastSyncAt ?? summary?.createdAt ?? null;
+  const syncedParts: string[] = [];
+  if (lastSync?.result.databaseUploaded) syncedParts.push('the chat database');
+  if (lastSync && lastSync.result.uploadedMedia > 0) {
+    syncedParts.push(
+      `${lastSync.result.uploadedMedia} new media file${lastSync.result.uploadedMedia === 1 ? '' : 's'}`,
+    );
+  }
+  const syncSummary = !lastSync
+    ? ''
+    : syncedParts.length > 0
+      ? `${syncedParts.join(' and ')} uploaded to Telegram.`
+      : 'No new or changed files were found in the folder — your backup is up to date.';
 
   return (
     <section className="mx-auto w-full max-w-4xl px-4 pb-28 pt-6 sm:px-6 md:pb-10">
@@ -508,21 +591,77 @@ export function WhatsAppBackupView({
         </div>
 
         <div className="space-y-4 p-5">
-          <p className="text-xs leading-relaxed text-muted">
-            Choose your WhatsApp folder — usually{' '}
-            <code className="text-[11px]">/Android/media/com.whatsapp/WhatsApp</code>. Only new or
-            changed files are uploaded, and the list of what has already been sent stays in this
-            browser. WhatsApp encrypts its chat database itself; PicPocket adds another layer on top.
-          </p>
+          {autoSync.config ? (
+            <div className="rounded-2xl border border-line bg-surface/50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <FolderOpen size={15} className="shrink-0 text-accent" />
+                  <p className="truncate text-sm font-medium text-ink">{autoSync.config.name}</p>
+                  <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
+                    Connected
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted">
+                  {lastSyncedAt ? `Last synced ${formatFullDate(lastSyncedAt)}` : 'Not synced yet'}
+                </p>
+              </div>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+                This folder stays remembered. Tap Re-sync now to send new messages and media — the
+                browser only asks for a one-tap “Allow” to read it again.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs leading-relaxed text-muted">
+              Choose your WhatsApp folder once — usually{' '}
+              <code className="text-[11px]">/Android/media/com.whatsapp/WhatsApp</code>. PicPocket
+              remembers it, so later you only tap Re-sync now. Only new or changed files are
+              uploaded; WhatsApp encrypts its database itself and PicPocket adds another layer.
+            </p>
+          )}
+
+          {lastSync ? (
+            <div
+              role="status"
+              className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4"
+            >
+              <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                <CheckCircle2 size={16} className="shrink-0 text-emerald-500" />
+                {syncedParts.length > 0 ? 'Sync complete — backup updated' : 'Already up to date'}
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted">{syncSummary}</p>
+              <p className="mt-0.5 text-[11px] text-muted">Checked {formatFullDate(lastSync.at)}</p>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
+              variant="primary"
+              onClick={() => void (scan ? uploadScan(scan) : resync())}
+              disabled={busy !== null || !channelId}
+              leadingIcon={
+                busy === 'sync' || busy === 'scan' ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <UploadCloud size={16} />
+                )
+              }
+            >
+              {busy === 'sync'
+                ? 'Syncing…'
+                : busy === 'scan'
+                  ? 'Checking for new files…'
+                  : scan
+                    ? 'Sync now'
+                    : 'Re-sync now'}
+            </Button>
+            <Button
               variant="secondary"
+              size="sm"
               onClick={() => void pickFolder()}
               disabled={busy !== null}
-              leadingIcon={<FolderOpen size={16} />}
+              leadingIcon={<FolderOpen size={15} />}
             >
-              {pickerAvailable ? 'Choose WhatsApp folder' : 'Select WhatsApp folder'}
+              {autoSync.config ? 'Choose a different folder' : 'Choose WhatsApp folder'}
             </Button>
             <Button
               variant="ghost"
@@ -533,25 +672,9 @@ export function WhatsAppBackupView({
             >
               Import chat export
             </Button>
-            {scan ? (
-              <Button
-                variant="primary"
-                onClick={() => void sync()}
-                disabled={busy !== null || !channelId}
-                leadingIcon={
-                  busy === 'sync' ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <UploadCloud size={16} />
-                  )
-                }
-              >
-                {busy === 'sync' ? 'Backing up…' : 'Sync WhatsApp folder now'}
-              </Button>
-            ) : null}
             {working ? (
               <Button variant="ghost" size="sm" onClick={cancel}>
-                {busy === 'scan' ? 'Stop scanning' : 'Cancel'}
+                {busy === 'scan' ? 'Stop checking' : 'Cancel'}
               </Button>
             ) : null}
           </div>
@@ -571,8 +694,9 @@ export function WhatsAppBackupView({
                   <Clock3 size={15} className="text-accent" /> Automatic backup
                 </p>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted">
-                  Runs once a day at your chosen time while PicPocket is open. Browsers cannot wake
-                  a closed app, so an overnight schedule runs the next time you open it.
+                  Checks once a day at your chosen time, while PicPocket is open. Chrome or Edge on a
+                  computer can run it with no tap at all (choose “Allow on every visit”); on a phone
+                  the next tap after opening the app starts it.
                 </p>
               </div>
               <button
@@ -619,6 +743,11 @@ export function WhatsAppBackupView({
               </p>
             )}
 
+            {autoSync.awaitingTap ? (
+              <p className="mt-2 text-[11px] font-medium leading-relaxed text-accent">
+                Backup is due — tap anywhere to allow the WhatsApp folder, then it starts on its own.
+              </p>
+            ) : null}
             {autoSync.error ? (
               <p className="mt-2 text-[11px] leading-relaxed text-danger">{autoSync.error}</p>
             ) : null}

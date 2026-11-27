@@ -400,6 +400,30 @@ export async function pickWhatsAppDirectory(
   return scanWhatsAppDirectory(handle, options);
 }
 
+export class WhatsAppFolderPermissionError extends Error {
+  constructor() {
+    super(
+      'PicPocket needs permission to read this folder again. Choose the folder once to reconnect it.',
+    );
+    this.name = 'WhatsAppFolderPermissionError';
+  }
+}
+
+/**
+ * Re-reads the folder that was picked earlier, so a second backup never asks
+ * the user to browse to the WhatsApp directory again. Browsers still require a
+ * fresh grant, which is one "Allow" tap and no folder navigation.
+ */
+export async function rescanWhatsAppFolder(
+  handle: FileSystemDirectoryHandle,
+  options: ScanOptions = {},
+): Promise<DirectoryScan> {
+  if (!(await requestWhatsAppFolderPermission(handle))) {
+    throw new WhatsAppFolderPermissionError();
+  }
+  return scanWhatsAppDirectory(handle, options);
+}
+
 /**
  * Fallback for browsers without `showDirectoryPicker`: `<input webkitdirectory>`.
  * `File.webkitRelativePath` preserves the folder structure we categorise on.

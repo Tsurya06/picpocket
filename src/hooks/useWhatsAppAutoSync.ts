@@ -22,6 +22,8 @@ export interface WhatsAppAutoSyncApi {
   readonly progress: BackupProgress | null;
   readonly error: string | null;
   readonly lastSyncAt: number | null;
+  /** True while a due backup waits for the tap that re-grants folder access. */
+  readonly awaitingTap: boolean;
   /** Increments after an automatic backup so the view can refresh its summary. */
   readonly version: number;
   readonly refresh: () => Promise<void>;
@@ -53,6 +55,7 @@ export function useWhatsAppAutoSync(options: {
   const [progress, setProgress] = useState<BackupProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [awaitingTap, setAwaitingTap] = useState(false);
   const [tick, setTick] = useState(0);
   const runningRef = useRef(false);
   const attemptedRef = useRef(false);
@@ -72,6 +75,7 @@ export function useWhatsAppAutoSync(options: {
   useEffect(() => {
     if (!enabled) {
       applyConfig(null);
+      setAwaitingTap(false);
       stopSyncKeepAlive();
       return;
     }
@@ -118,37 +122,23 @@ export function useWhatsAppAutoSync(options: {
     async (at = Date.now()): Promise<void> => {
       await markWhatsAppFolderSynced(at);
       setConfig((current) => (current ? { ...current, lastSyncAt: at } : current));
+      setAwaitingTap(false);
       setVersion((value) => value + 1);
     },
     [],
   );
 
-  useEffect(() => {
-    if (!enabled || !channelId || !config || !autoSync || runningRef.current) return;
-    if (attemptedRef.current || !isSyncDue(config.lastSyncAt, scheduleTime)) return;
-
-    attemptedRef.current = true;
-    runningRef.current = true;
-    setError(null);
-    setProgress(null);
-    setPhase('scanning');
-
-    void (async () => {
+  /** Scans the remembered folder and uploads whatever changed. */
+  const runBackup = useCallback(
+    async (handle: FileSystemDirectoryHandle, targetChannelId: string): Promise<void> => {
+      runningRef.current = true;
+      setError(null);
+      setProgress(null);
+      setPhase('scanning');
       await startSyncKeepAlive();
-      try {
-        const permission = await whatsAppFolderPermission(config.handle);
-        if (permission !== 'granted') {
-          const granted = await requestWhatsAppFolderPermission(config.handle);
-          if (!granted) {
-            setPhase('permission');
-            setError(
-              'WhatsApp folder access needs renewing. Open WhatsApp Vault and choose the folder again once.',
-            );
-            return;
-          }
-        }
 
-        const scan = await scanWhatsAppDirectory(config.handle, {
+      try {
+        const scan = await scanWhatsAppDirectory(handle, {
           onProgress: (next) => {
             setProgress({
               phase: 'scanning',
@@ -165,12 +155,11 @@ export function useWhatsAppAutoSync(options: {
         });
         setPhase('uploading');
         await syncWhatsAppBackup({
-          channelId,
+          channelId: targetChannelId,
           scan,
           onProgress: (next) => setProgress(next),
         });
-        const completedAt = Date.now();
-        await markSynced(completedAt);
+        await markSynced(Date.now());
         setPhase('done');
         setError(null);
       } catch (caught) {
@@ -180,8 +169,70 @@ export function useWhatsAppAutoSync(options: {
         stopSyncKeepAlive();
         runningRef.current = false;
       }
+    },
+    [markSynced],
+  );
+
+  // A due backup starts on its own when the browser still remembers the folder
+  // grant. Permissions are lost between sessions in most browsers, so the rest
+  // of the time it waits for the next tap instead of failing.
+  useEffect(() => {
+    if (!enabled || !channelId || !config || !autoSync || runningRef.current) return;
+    if (attemptedRef.current || !isSyncDue(config.lastSyncAt, scheduleTime)) return;
+
+    attemptedRef.current = true;
+    const handle = config.handle;
+    let cancelled = false;
+
+    void (async () => {
+      const permission = await whatsAppFolderPermission(handle);
+      if (cancelled) return;
+      if (permission === 'granted') {
+        setAwaitingTap(false);
+        await runBackup(handle, channelId);
+        return;
+      }
+      setPhase('permission');
+      setError(null);
+      setAwaitingTap(true);
     })();
-  }, [autoSync, channelId, config, enabled, markSynced, scheduleTime, tick]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoSync, channelId, config, enabled, runBackup, scheduleTime, tick]);
+
+  // `requestPermission()` only works inside a real gesture, so the first tap or
+  // key press anywhere in the app renews access and then starts the backup.
+  useEffect(() => {
+    if (!enabled || !channelId || !config || !awaitingTap || runningRef.current) return;
+    const handle = config.handle;
+    const targetChannelId = channelId;
+
+    function stopListening(): void {
+      window.removeEventListener('pointerdown', resume, true);
+      window.removeEventListener('keydown', resume, true);
+    }
+
+    async function resume(): Promise<void> {
+      stopListening();
+      setAwaitingTap(false);
+      if (runningRef.current) return;
+      const granted = await requestWhatsAppFolderPermission(handle);
+      if (!granted) {
+        setPhase('error');
+        setError(
+          'Folder access was not allowed. Open WhatsApp Vault and allow the WhatsApp folder once to resume automatic backups.',
+        );
+        return;
+      }
+      await runBackup(handle, targetChannelId);
+    }
+
+    window.addEventListener('pointerdown', resume, true);
+    window.addEventListener('keydown', resume, true);
+    return stopListening;
+  }, [awaitingTap, channelId, config, enabled, runBackup]);
 
   return {
     config,
@@ -191,6 +242,7 @@ export function useWhatsAppAutoSync(options: {
     progress,
     error,
     lastSyncAt: config?.lastSyncAt ?? null,
+    awaitingTap,
     version,
     refresh,
     setAutoSync,
