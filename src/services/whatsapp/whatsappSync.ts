@@ -27,8 +27,15 @@ import type {
   WhatsAppCategory,
   WhatsAppFolderConfig,
   WhatsAppLocalSummary,
+  WhatsAppMediaSelection,
 } from '../../types/whatsapp';
-import { isWhatsAppBackupManifest } from '../../types/whatsapp';
+import {
+  ALL_MEDIA_SELECTION,
+  isWhatsAppBackupManifest,
+  mediaSelectionIncludes,
+  NO_MEDIA_SELECTION,
+  normalizeMediaSelection,
+} from '../../types/whatsapp';
 import {
   getSetting,
   getWhatsAppBackup,
@@ -124,6 +131,11 @@ export function categorizeWhatsAppFile(path: string, file: File): WhatsAppCatego
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
+  // A PDF saved outside the Documents folder must still be selectable as a
+  // document instead of falling into the catch-all bucket.
+  if (mime === 'application/pdf' || /\.(pdf|docx?|xlsx?|pptx?|txt|csv)$/i.test(name)) {
+    return 'document';
+  }
 
   if (file.name.includes('.')) return 'other';
   return 'other';
@@ -356,7 +368,13 @@ export async function loadWhatsAppFolderConfig(): Promise<WhatsAppFolderConfig |
     lastSyncAt: typeof candidate.lastSyncAt === 'number' ? candidate.lastSyncAt : null,
     autoSync: candidate.autoSync === true,
     scheduleTime: normalizeSyncTime(candidate.scheduleTime),
-    includeMedia: candidate.includeMedia === true,
+    // Configs saved before the per-type switches only had a single on/off.
+    media:
+      candidate.media !== undefined
+        ? normalizeMediaSelection(candidate.media)
+        : (value as { includeMedia?: unknown }).includeMedia === true
+          ? ALL_MEDIA_SELECTION
+          : NO_MEDIA_SELECTION,
     savedAt: typeof candidate.savedAt === 'number' ? candidate.savedAt : Date.now(),
   };
 }
@@ -396,7 +414,7 @@ export async function pickWhatsAppDirectory(
     lastSyncAt: previous?.lastSyncAt ?? null,
     autoSync: previous?.autoSync ?? false,
     scheduleTime: previous?.scheduleTime ?? DEFAULT_SYNC_TIME,
-    includeMedia: previous?.includeMedia ?? false,
+    media: previous?.media ?? NO_MEDIA_SELECTION,
     savedAt: Date.now(),
   });
   return scanWhatsAppDirectory(handle, options);
@@ -502,7 +520,7 @@ const parseDbInfo = (row: WhatsAppBackupRow | undefined): BackupDatabaseInfo | n
 async function planSync(
   channelId: string,
   scan: DirectoryScan,
-  includeMedia: boolean,
+  media: WhatsAppMediaSelection,
 ): Promise<SyncPlan> {
   const [previous, rows] = await Promise.all([
     getWhatsAppBackup(channelId),
@@ -512,14 +530,13 @@ async function planSync(
   const previousDb = parseDbInfo(previous);
   const candidate = scan.latestDatabase;
 
-  // Chats-only backups skip media entirely: the encrypted msgstore is all
-  // WhatsApp needs to restore messages, so thousands of photos never upload.
-  const pendingMedia = includeMedia
-    ? scan.media.filter((entry) => {
-        const row = existingRows.get(entry.path);
-        return !row || row.signature !== entry.signature;
-      })
-    : [];
+  // Only the media types the user picked are considered: the encrypted msgstore
+  // alone restores messages, so photos/videos/PDFs stay optional.
+  const pendingMedia = scan.media.filter((entry) => {
+    if (!mediaSelectionIncludes(media, entry.category)) return false;
+    const row = existingRows.get(entry.path);
+    return !row || row.signature !== entry.signature;
+  });
 
   const databaseChanged =
     candidate !== null &&
@@ -540,9 +557,9 @@ async function planSync(
 export async function previewWhatsAppSync(
   channelId: string,
   scan: DirectoryScan,
-  includeMedia = false,
+  media: WhatsAppMediaSelection = NO_MEDIA_SELECTION,
 ): Promise<SyncPlanSummary> {
-  const plan = await planSync(channelId, scan, includeMedia);
+  const plan = await planSync(channelId, scan, media);
   return {
     pendingMediaCount: plan.pendingMedia.length,
     pendingBytes: plan.pendingMedia.reduce((sum, entry) => sum + entry.file.size, 0),
@@ -667,8 +684,8 @@ const deleteSuperseded = (channelId: string, row: WhatsAppFileRow | undefined): 
 export interface SyncOptions {
   readonly channelId: string;
   readonly scan: DirectoryScan;
-  /** Upload media as well as the chat database. Defaults to chats only. */
-  readonly includeMedia?: boolean;
+  /** Media types to upload besides the chat database. Defaults to chats only. */
+  readonly media?: WhatsAppMediaSelection;
   readonly onProgress?: (progress: BackupProgress) => void;
   readonly signal?: AbortSignal;
 }
@@ -682,9 +699,9 @@ export interface SyncResult {
 
 export async function syncWhatsAppBackup(options: SyncOptions): Promise<SyncResult> {
   const { channelId, scan, signal } = options;
-  const includeMedia = options.includeMedia ?? false;
+  const mediaSelection = options.media ?? NO_MEDIA_SELECTION;
   const onProgress = options.onProgress ?? noop;
-  const plan = await planSync(channelId, scan, includeMedia);
+  const plan = await planSync(channelId, scan, mediaSelection);
   const backupId = randomBackupId();
   const createdAt = Date.now();
   const candidate = scan.latestDatabase;

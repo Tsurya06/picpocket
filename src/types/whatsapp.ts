@@ -11,6 +11,54 @@ export type WhatsAppCategory =
   | 'audio'
   | 'other';
 
+/** Which media types the user wants uploaded alongside the chat database. */
+export type WhatsAppMediaKind = 'photos' | 'videos' | 'documents';
+
+export type WhatsAppMediaSelection = Readonly<Record<WhatsAppMediaKind, boolean>>;
+
+export const NO_MEDIA_SELECTION: WhatsAppMediaSelection = {
+  photos: false,
+  videos: false,
+  documents: false,
+};
+
+export const ALL_MEDIA_SELECTION: WhatsAppMediaSelection = {
+  photos: true,
+  videos: true,
+  documents: true,
+};
+
+export function hasAnyMedia(selection: WhatsAppMediaSelection): boolean {
+  return selection.photos || selection.videos || selection.documents;
+}
+
+export function normalizeMediaSelection(value: unknown): WhatsAppMediaSelection {
+  if (typeof value !== 'object' || value === null) return NO_MEDIA_SELECTION;
+  const candidate = value as Record<string, unknown>;
+  return {
+    photos: candidate.photos === true,
+    videos: candidate.videos === true,
+    documents: candidate.documents === true,
+  };
+}
+
+/** Maps a scanned file category to the switch that controls it. */
+export function mediaSelectionIncludes(
+  selection: WhatsAppMediaSelection,
+  category: WhatsAppCategory,
+): boolean {
+  switch (category) {
+    case 'image':
+      return selection.photos;
+    case 'video':
+      return selection.videos;
+    case 'document':
+      return selection.documents;
+    default:
+      return false;
+  }
+}
+
 export interface ScannedWhatsAppFile {
   readonly file: File;
   /** Path relative to the picked WhatsApp root, using `/` separators. */
@@ -36,8 +84,8 @@ export interface WhatsAppFolderConfig {
   readonly lastSyncAt: number | null;
   readonly autoSync: boolean;
   readonly scheduleTime: string;
-  /** Upload photos, videos and voice notes too. Off = chat database only. */
-  readonly includeMedia: boolean;
+  /** Which media types to upload. All off = chat database only. */
+  readonly media: WhatsAppMediaSelection;
   readonly savedAt: number;
 }
 

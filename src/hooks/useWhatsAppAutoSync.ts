@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BackupProgress, WhatsAppFolderConfig } from '../types/whatsapp';
+import type {
+  BackupProgress,
+  WhatsAppFolderConfig,
+  WhatsAppMediaSelection,
+} from '../types/whatsapp';
+import { NO_MEDIA_SELECTION, normalizeMediaSelection } from '../types/whatsapp';
 import { DEFAULT_SYNC_TIME, isSyncDue, normalizeSyncTime } from '../lib/syncSchedule';
 import {
   loadWhatsAppFolderConfig,
@@ -18,9 +23,9 @@ export interface WhatsAppAutoSyncApi {
   readonly config: WhatsAppFolderConfig | null;
   readonly autoSync: boolean;
   readonly scheduleTime: string;
-  /** True when photos, videos and voice notes are uploaded too. */
-  readonly includeMedia: boolean;
-  readonly setIncludeMedia: (value: boolean) => Promise<void>;
+  /** Which media types (photos, videos, documents) are uploaded too. */
+  readonly media: WhatsAppMediaSelection;
+  readonly setMedia: (value: WhatsAppMediaSelection) => Promise<void>;
   readonly phase: WhatsAppAutoPhase;
   readonly progress: BackupProgress | null;
   readonly error: string | null;
@@ -126,10 +131,10 @@ export function useWhatsAppAutoSync(options: {
     [config],
   );
 
-  const setIncludeMedia = useCallback(
-    async (value: boolean): Promise<void> => {
+  const setMedia = useCallback(
+    async (value: WhatsAppMediaSelection): Promise<void> => {
       if (!config) return;
-      const next = { ...config, includeMedia: value };
+      const next = { ...config, media: normalizeMediaSelection(value) };
       setConfig(next);
       await saveWhatsAppFolderConfig(next);
     },
@@ -159,7 +164,7 @@ export function useWhatsAppAutoSync(options: {
     async (
       handle: FileSystemDirectoryHandle,
       targetChannelId: string,
-      includeMedia: boolean,
+      media: WhatsAppMediaSelection,
     ): Promise<void> => {
       const release = claimSync();
       if (!release) return;
@@ -188,7 +193,7 @@ export function useWhatsAppAutoSync(options: {
         await syncWhatsAppBackup({
           channelId: targetChannelId,
           scan,
-          includeMedia,
+          media,
           onProgress: (next) => setProgress(next),
         });
         await markSynced(Date.now());
@@ -214,7 +219,7 @@ export function useWhatsAppAutoSync(options: {
 
     attemptedRef.current = true;
     const handle = config.handle;
-    const includeMedia = config.includeMedia;
+    const media = config.media;
     let cancelled = false;
 
     void (async () => {
@@ -222,7 +227,7 @@ export function useWhatsAppAutoSync(options: {
       if (cancelled) return;
       if (permission === 'granted') {
         setAwaitingTap(false);
-        await runBackup(handle, channelId, includeMedia);
+        await runBackup(handle, channelId, media);
         return;
       }
       setPhase('permission');
@@ -241,7 +246,7 @@ export function useWhatsAppAutoSync(options: {
     if (!enabled || !channelId || !config || !awaitingTap || runningRef.current) return;
     const handle = config.handle;
     const targetChannelId = channelId;
-    const includeMedia = config.includeMedia;
+    const media = config.media;
 
     function stopListening(): void {
       window.removeEventListener('pointerdown', resume, true);
@@ -260,7 +265,7 @@ export function useWhatsAppAutoSync(options: {
         );
         return;
       }
-      await runBackup(handle, targetChannelId, includeMedia);
+      await runBackup(handle, targetChannelId, media);
     }
 
     window.addEventListener('pointerdown', resume, true);
@@ -272,8 +277,8 @@ export function useWhatsAppAutoSync(options: {
     config,
     autoSync,
     scheduleTime,
-    includeMedia: config?.includeMedia === true,
-    setIncludeMedia,
+    media: config?.media ?? NO_MEDIA_SELECTION,
+    setMedia,
     phase,
     progress,
     error,
